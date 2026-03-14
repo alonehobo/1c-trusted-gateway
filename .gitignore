@@ -1,0 +1,11 @@
+# Build artifacts
+*.exe
+*.exe~
+rsrc.syso
+
+# Build directories
+dist/
+
+# Binaries distributed via GitHub Releases
+releases/
+1c-extension/*.cfe

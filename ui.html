@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1C Trusted Gateway</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Design System — CSS Custom Properties
+   ═══════════════════════════════════════════════════════════════ */
+
+:root { --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+
+body.theme-dark {
+  --bg-0: #0c0d10; --bg-1: #141519; --bg-2: #1c1d24; --bg-3: #25262e;
+  --surface: rgba(255,255,255,0.04); --surface-hover: rgba(255,255,255,0.07);
+  --surface-active: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.08); --border-subtle: rgba(255,255,255,0.05);
+  --text-primary: #f0f0f3; --text-secondary: #a0a3b1; --text-tertiary: #6b6f80;
+  --accent: #6c8aff; --accent-soft: rgba(108,138,255,0.15); --accent-hover: #8ba3ff;
+  --success: #3ecf8e; --success-soft: rgba(62,207,142,0.12);
+  --warning: #f0b429; --warning-soft: rgba(240,180,41,0.12);
+  --error: #f56565; --error-soft: rgba(245,101,101,0.12);
+  --input-bg: rgba(255,255,255,0.04); --input-border: rgba(255,255,255,0.10);
+  --input-focus: rgba(108,138,255,0.4);
+  --table-header: rgba(255,255,255,0.03); --table-row-hover: rgba(108,138,255,0.06);
+  --table-selected: rgba(108,138,255,0.12);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --glow: 0 0 20px rgba(108,138,255,0.1);
+  --scrollbar-thumb: rgba(255,255,255,0.1); --scrollbar-track: transparent;
+}
+
+body.theme-light {
+  --bg-0: #f8f9fb; --bg-1: #ffffff; --bg-2: #f3f4f6; --bg-3: #e8eaed;
+  --surface: rgba(0,0,0,0.02); --surface-hover: rgba(0,0,0,0.04);
+  --surface-active: rgba(0,0,0,0.06);
+  --border: rgba(0,0,0,0.08); --border-subtle: rgba(0,0,0,0.05);
+  --text-primary: #1a1c23; --text-secondary: #5f6470; --text-tertiary: #9096a4;
+  --accent: #4f6df5; --accent-soft: rgba(79,109,245,0.10); --accent-hover: #3d5ce0;
+  --success: #22a868; --success-soft: rgba(34,168,104,0.10);
+  --warning: #d4940a; --warning-soft: rgba(212,148,10,0.10);
+  --error: #dc3545; --error-soft: rgba(220,53,69,0.10);
+  --input-bg: rgba(0,0,0,0.02); --input-border: rgba(0,0,0,0.12);
+  --input-focus: rgba(79,109,245,0.4);
+  --table-header: rgba(0,0,0,0.02); --table-row-hover: rgba(79,109,245,0.04);
+  --table-selected: rgba(79,109,245,0.08);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06); --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+  --glow: 0 0 20px rgba(79,109,245,0.06);
+  --scrollbar-thumb: rgba(0,0,0,0.12); --scrollbar-track: transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Reset & Base
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  background: var(--bg-0); color: var(--text-primary);
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+::selection { background: var(--accent-soft); color: var(--text-primary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Layout
+   ═══════════════════════════════════════════════════════════════ */
+
+#app { display: flex; flex-direction: column; height: 100vh; gap: 1px; background: var(--border-subtle); }
+.panel { background: var(--bg-1); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Header — Connection Panel
+   ═══════════════════════════════════════════════════════════════ */
+
+#header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; }
+#header .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+#header .logo-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 13px; color: #fff; letter-spacing: -0.5px;
+}
+#header .logo-text { font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; }
+#header .logo-version { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
+
+.header-fields { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.header-field { position: relative; }
+.header-field label { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: 0.5px; pointer-events: none; transition: all var(--transition); opacity: 0; }
+.header-field input:focus + label, .header-field input:not(:placeholder-shown) + label {
+  top: 2px; transform: none; font-size: 9px; opacity: 1; }
+.header-field input { width: 100%; }
+.field-url { flex: 2; }
+.field-token { flex: 1; }
+
+.mask-bar { display: flex; gap: 12px; padding: 6px 16px !important; }
+.mask-field { flex: 1; display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.mask-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; padding-top: 5px; flex-shrink: 0; }
+.mask-input {
+  flex: 1; min-width: 0; resize: vertical;
+  font-family: inherit; font-size: 12px; line-height: 1.4;
+  padding: 4px 8px; border-radius: var(--radius-xs);
+  background: var(--input-bg); border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.mask-input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Bridge secret in header */
+.bridge-label { font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; font-size: 10px; }
+.bridge-secret {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 11px;
+  color: var(--accent); background: var(--accent-soft); padding: 2px 8px;
+  border-radius: 4px; cursor: pointer; user-select: all; letter-spacing: 0.3px;
+}
+.bridge-secret:hover { background: var(--accent); color: #fff; }
+.bridge-addr { color: var(--text-tertiary); font-family: 'Cascadia Code', monospace; font-size: 10px; }
+
+/* Query input bar */
+.query-bar { display: flex; gap: 8px; padding: 8px 0; align-items: stretch; }
+.query-bar textarea {
+  flex: 1; min-height: 36px; max-height: 200px; resize: vertical;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.4;
+  padding: 8px 10px; border-radius: var(--radius-xs);
+  background: var(--input-bg); border: 1px solid var(--border);
+  color: var(--text-primary); tab-size: 2;
+}
+.query-bar textarea:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.query-bar textarea::placeholder { color: var(--text-tertiary); }
+.query-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+
+.header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: all var(--transition); }
+.conn-dot.ok { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.conn-dot.fail { background: var(--text-tertiary); }
+.conn-dot.pulse { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.divider-v { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Inputs
+   ═══════════════════════════════════════════════════════════════ */
+
+input[type=text], input[type=password], select {
+  background: var(--input-bg); color: var(--text-primary); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); padding: 7px 10px; font-size: 12px; font-family: inherit;
+  outline: none; transition: all var(--transition);
+}
+select option { background: var(--bg-2); color: var(--text-primary); }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--input-focus); }
+input::placeholder { color: var(--text-tertiary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Buttons
+   ═══════════════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; border-radius: var(--radius-xs); padding: 6px 12px;
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: all var(--transition); white-space: nowrap; line-height: 1.4;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: var(--accent); color: #fff;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-md), var(--glow); }
+
+.btn-ghost { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--input-border); }
+
+.btn-icon { background: transparent; color: var(--text-tertiary); padding: 6px; border-radius: var(--radius-xs); }
+.btn-icon:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.btn-xs { padding: 3px 8px; font-size: 11px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Toolbar — Tabs + Task + State
+   ═══════════════════════════════════════════════════════════════ */
+
+#toolbar {
+  display: flex; align-items: center; gap: 2px; padding: 6px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab-btn {
+  background: transparent; color: var(--text-secondary); border: none;
+  border-radius: var(--radius-xs); padding: 6px 14px;
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: all var(--transition); position: relative;
+}
+.tab-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
+.tab-btn.active { color: var(--text-primary); }
+.tab-btn.active::after {
+  content: ''; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  width: 20px; height: 2px; background: var(--accent); border-radius: 1px;
+}
+
+#task-text { flex: 1; font-size: 11px; color: var(--text-tertiary); text-align: center;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
+
+.state-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  flex-shrink: 0; transition: all var(--transition);
+}
+.state-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+.sb-idle { background: var(--surface); color: var(--text-tertiary); }
+.sb-idle .dot { background: var(--text-tertiary); }
+.sb-running { background: var(--warning-soft); color: var(--warning); }
+.sb-running .dot { background: var(--warning); animation: pulse 1.5s infinite; }
+.sb-success { background: var(--success-soft); color: var(--success); }
+.sb-success .dot { background: var(--success); }
+.sb-warning { background: var(--warning-soft); color: var(--warning); }
+.sb-warning .dot { background: var(--warning); }
+.sb-error { background: var(--error-soft); color: var(--error); }
+.sb-error .dot { background: var(--error); }
+
+/* Meta pill */
+.meta-pill { font-size: 11px; color: var(--text-tertiary); padding: 3px 8px;
+             background: var(--surface); border-radius: 20px; white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Content Area
+   ═══════════════════════════════════════════════════════════════ */
+
+#content { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+.tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; padding: 16px 20px; }
+.tab-panel.active { display: flex; }
+
+/* ─── Result Table ─── */
+#result-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+#result-actions .search-wrap { position: relative; flex: 0 0 240px; }
+#result-actions .search-wrap input { width: 100%; padding-left: 30px; }
+#result-actions .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); font-size: 13px; pointer-events: none; }
+.row-count { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+
+.table-wrap {
+  flex: 1; min-height: 0; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-1);
+}
+#result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#result-table thead { position: sticky; top: 0; z-index: 2; }
+#result-table th {
+  background: var(--table-header); color: var(--text-secondary); font-weight: 600;
+  padding: 8px 12px; text-align: left; cursor: pointer; white-space: nowrap;
+  border-bottom: 1px solid var(--border); user-select: none; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+  transition: background var(--transition);
+}
+#result-table th:hover { background: var(--surface-hover); color: var(--text-primary); }
+#result-table th .sort-arrow { color: var(--accent); margin-left: 4px; }
+#result-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
+  max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background var(--transition);
+}
+#result-table tbody tr { cursor: default; }
+#result-table tbody tr:hover td { background: var(--table-row-hover); }
+#result-table tbody td { user-select: none; -webkit-user-select: none; }
+#result-table tbody td.cell-selected { background: var(--table-selected) !important; }
+#result-table tbody td.cell-anchor { box-shadow: inset 0 0 0 1.5px var(--accent); }
+#result-table tbody tr:last-child td { border-bottom: none; }
+
+/* Masked table */
+.masked-section-hdr {
+  margin-top: 16px; padding-top: 12px;
+  border-top: 2px dashed var(--border);
+}
+#masked-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#masked-table thead { position: sticky; top: 0; z-index: 2; }
+#masked-table th {
+  background: var(--table-header); color: var(--text-secondary); font-weight: 600;
+  padding: 8px 12px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+#masked-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
+  max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#masked-table tbody tr:hover td { background: var(--table-row-hover); }
+#masked-table tbody tr:last-child td { border-bottom: none; }
+#masked-table .masked-col { color: var(--accent); font-family: var(--mono); font-style: italic; }
+#masked-table th.masked-col { color: var(--accent); }
+
+.result-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 20px; color: var(--text-tertiary); font-size: 13px;
+  flex: 1;
+}
+.result-placeholder.error { color: var(--error); font-weight: 600; }
+
+/* ─── Text Panels ─── */
+.text-panel {
+  flex: 1; min-height: 0; background: var(--bg-2); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12px; line-height: 1.7; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+textarea.text-panel { outline: none; width: 100%; resize: none; }
+textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--input-focus); }
+
+/* ─── Split Panels ─── */
+.split-h, .split-v { display: flex; flex: 1; min-height: 0; gap: 12px; }
+.split-h { flex-direction: row; }
+.split-v { flex-direction: column; }
+.split-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+.pane-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  background: var(--surface); border: 1px solid var(--border); border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.pane-header + .text-panel { border-radius: 0 0 var(--radius) var(--radius); }
+
+.raw-border-neutral { border-color: var(--border); }
+.raw-border-success { border-color: var(--success); }
+.raw-border-warning { border-color: var(--warning); }
+.raw-border-error { border-color: var(--error); }
+
+/* ─── Section Header ─── */
+.section-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
+.section-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Status Bar
+   ═══════════════════════════════════════════════════════════════ */
+
+#status-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 20px; font-size: 11px; background: var(--bg-1);
+  border-top: 1px solid var(--border-subtle);
+}
+#status-bar .main { font-weight: 600; color: var(--text-secondary); }
+#status-bar .meta { color: var(--text-tertiary); display: flex; gap: 16px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Settings Tab
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-scroll { overflow-y: auto; height: 100%; padding: 16px 20px; }
+.settings-grid { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+.settings-section {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px 14px; background: var(--surface);
+}
+.settings-section legend {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-tertiary); padding: 0 6px;
+}
+
+.settings-field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.settings-field:first-of-type { margin-top: 4px; }
+
+.settings-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.settings-hint { font-size: 11px; color: var(--text-tertiary); font-style: italic; }
+
+.settings-input {
+  background: var(--input-bg); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); padding: 7px 10px; color: var(--text-primary);
+  font-size: 13px; font-family: inherit; width: 100%;
+  transition: border-color var(--transition);
+}
+.settings-input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.settings-textarea { resize: vertical; min-height: 40px; font-family: inherit; line-height: 1.4; }
+.settings-input-short { max-width: 140px; }
+
+.settings-input-wrap { display: flex; gap: 6px; align-items: center; }
+.settings-input-wrap .settings-input { flex: 1; }
+.settings-eye { flex-shrink: 0; }
+
+.settings-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.settings-row .settings-field { flex: 1; min-width: 140px; }
+
+.settings-check-wrap { flex-direction: row; align-items: center; gap: 8px; margin-top: 14px; }
+.settings-check-wrap input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+.settings-actions {
+  display: flex; gap: 10px; padding-top: 4px; flex-wrap: wrap;
+}
+.settings-import-label { cursor: pointer; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Toast
+   ═══════════════════════════════════════════════════════════════ */
+
+.toast {
+  position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-3); color: var(--text-primary);
+  border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+  padding: 10px 20px; border-radius: var(--radius); font-size: 12px; font-weight: 500;
+  opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none; z-index: 100; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tab-panel.active { animation: fadeIn 0.15s ease-out; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="app">
+
+  <!-- ══════ Header ══════ -->
+  <div id="header" class="panel">
+    <div class="logo">
+      <div class="logo-icon">TG</div>
+      <span class="logo-text">Trusted Gateway</span>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="header-fields">
+      <div class="header-field field-url">
+        <input type="text" id="url" placeholder="MCP URL">
+      </div>
+      <div class="header-field field-token">
+        <input type="password" id="token" placeholder="Ключ">
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span id="conn-dot" class="conn-dot fail" title="Не подключено"></span>
+      <button class="btn btn-primary" onclick="doConnect()">Подключить</button>
+      <button class="btn btn-ghost" onclick="doClearSession()">Сброс</button>
+      <div class="divider-v"></div>
+      <span class="bridge-label">Secret:</span>
+      <code class="bridge-secret" id="bridge-secret-text" title="Нажмите для копирования" onclick="copyBridgeSecret()">—</code>
+      <button class="btn btn-ghost btn-xs" onclick="copyBridgeSecret()">&#128203;</button>
+      <span class="bridge-addr" id="bridge-addr"></span>
+      <div class="divider-v"></div>
+      <button class="btn btn-icon" onclick="setTheme('light')" title="Светлая тема">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+      <button class="btn btn-icon" onclick="setTheme('dark')" title="Тёмная тема">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════ Masking fields (session) ══════ -->
+  <div id="mask-bar" class="panel mask-bar">
+    <div class="mask-field">
+      <span class="mask-label">Шифровать (через запятую):</span>
+      <textarea id="force-mask" class="mask-input" rows="1" placeholder="Поля для обязательной маскировки в этой сессии..."></textarea>
+    </div>
+    <div class="mask-field">
+      <span class="mask-label">Не шифровать:</span>
+      <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не маскировать..."></textarea>
+    </div>
+  </div>
+
+  <!-- ══════ Toolbar ══════ -->
+  <div id="toolbar" class="panel">
+    <button class="tab-btn active" onclick="showTab('result',this)">Результат</button>
+    <button class="tab-btn" onclick="showTab('bundle',this)">Данные для агента</button>
+    <button class="tab-btn" onclick="showTab('analysis',this)">Анализ данных от агента</button>
+    <button class="tab-btn" onclick="showTab('raw',this)">MCP</button>
+    <button class="tab-btn" onclick="showTab('settings',this)">&#9881; Настройки</button>
+    <span id="task-text">Ожидаю задачу от контроллера</span>
+    <span id="meta-session" class="meta-pill" style="display:none"></span>
+    <div id="query-state" class="state-badge sb-idle"><span class="dot"></span><span class="state-label">Ожидание</span></div>
+  </div>
+
+  <!-- ══════ Content ══════ -->
+  <div id="content" class="panel">
+
+    <!-- Tab: Result -->
+    <div id="tab-result" class="tab-panel active">
+      <div id="result-actions">
+        <div class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" id="result-filter" placeholder="Поиск по таблице..." oninput="applyResultView()">
+        </div>
+        <select id="result-filter-col" onchange="applyResultView()"><option>Все поля</option></select>
+        <button class="btn btn-ghost btn-xs" onclick="clearFilter()">Сбросить</button>
+        <span class="row-count" id="row-count"></span>
+        <button class="btn btn-ghost btn-xs" onclick="copyAllRows()">Копировать все</button>
+        <button class="btn btn-ghost btn-xs" onclick="copyCellSelection()">Выделение</button>
+      </div>
+      <div class="table-wrap" id="result-table-wrap">
+        <table id="result-table"><thead><tr></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="result-placeholder" id="result-placeholder">Результат появится здесь после выполнения запроса</div>
+
+      <!-- masked data merged into main table -->
+    </div>
+
+    <!-- Tab: Bundle -->
+    <div id="tab-bundle" class="tab-panel">
+      <div class="section-header">
+        <span class="section-title">Обезличенные данные для агента</span>
+        <button class="btn btn-ghost btn-xs" onclick="copyBundle()">Скопировать</button>
+      </div>
+      <div class="text-panel" id="bundle-text"></div>
+    </div>
+
+    <!-- Tab: Analysis -->
+    <div id="tab-analysis" class="tab-panel">
+      <div class="split-v">
+        <div class="split-pane">
+          <div class="pane-header">Анализ от агента (aliases)</div>
+          <div class="text-panel" id="analysis-masked"></div>
+        </div>
+        <div class="split-pane">
+          <div class="pane-header">Расшифрованный анализ</div>
+          <div class="text-panel" id="analysis-display"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Raw (MCP) -->
+    <div id="tab-raw" class="tab-panel">
+      <div class="query-bar">
+        <textarea id="query-input" rows="3" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
+        <div class="query-actions">
+          <button class="btn btn-primary" onclick="doQuery('direct')" id="btn-query-direct" title="Выполнить запрос, результат отображается только в этом окне">&#9654; Выполнить</button>
+          <button class="btn btn-ghost btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить с маскировкой — для передачи агенту">&#128274; Masked</button>
+          <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
+        </div>
+      </div>
+      <div class="split-h">
+        <div class="split-pane">
+          <div class="pane-header">Запрос 1С</div>
+          <div class="text-panel" id="query-preview"></div>
+        </div>
+        <div class="split-pane">
+          <div class="pane-header" id="raw-response-label">Ответ MCP</div>
+          <div class="text-panel" id="raw-response"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="tab-settings" class="tab-panel">
+      <div class="settings-scroll">
+        <div class="settings-grid">
+
+          <fieldset class="settings-section">
+            <legend>MCP Сервер</legend>
+            <label class="settings-field">
+              <span class="settings-label">URL сервера</span>
+              <input type="text" id="s-mcp-url" class="settings-input" placeholder="http://server:3080/work/hs/mcp/">
+            </label>
+            <label class="settings-field">
+              <span class="settings-label">Ключ авторизации</span>
+              <div class="settings-input-wrap">
+                <input type="password" id="s-mcp-token" class="settings-input" placeholder="Введите ключ или оставьте пустым">
+                <button type="button" class="btn btn-ghost btn-xs settings-eye" onclick="toggleTokenVis()">&#128065;</button>
+              </div>
+              <span class="settings-hint" id="s-token-hint" style="display:none">Текущий ключ сохранён. Оставьте поле пустым, чтобы не менять.</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Маскирование полей (по умолчанию)</legend>
+            <label class="settings-field">
+              <span class="settings-label">Всегда шифровать (через запятую)</span>
+              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые всегда маскировать (например: ФИО, Телефон, Email)"></textarea>
+              <span class="settings-hint">Эти поля будут подставлены в сессию автоматически при каждом запуске.</span>
+            </label>
+            <label class="settings-field">
+              <span class="settings-label">Никогда не шифровать (через запятую)</span>
+              <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
+              <span class="settings-hint">Эти поля будут явно разрешены для передачи без маскировки.</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Параметры</legend>
+            <div class="settings-row">
+              <label class="settings-field">
+                <span class="settings-label">Превью результата (символов)</span>
+                <input type="number" id="s-preview-chars" class="settings-input settings-input-short" min="100" step="100">
+              </label>
+              <label class="settings-field settings-check-wrap">
+                <input type="checkbox" id="s-auto-execute">
+                <span class="settings-label">Выполнять без подтверждения</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="settings-actions">
+            <button class="btn btn-primary" onclick="saveSettings()">&#128190; Сохранить</button>
+            <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
+            <label class="btn btn-ghost settings-import-label">
+              &#128229; Импорт config.json
+              <input type="file" id="s-import-file" accept=".json" style="display:none" onchange="importSettings(this)">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════ Status Bar ══════ -->
+  <div id="status-bar">
+    <span class="main" id="status-text">Готово</span>
+    <span class="meta">
+      <span id="status-security"></span>
+      <span id="status-session"></span>
+      <span id="status-bridge"></span>
+    </span>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const TOKEN = "{{SESSION_TOKEN}}";
+let appState = { version: 0 };
+let resultRows = [];
+let resultHeaders = [];
+let maskedRows = [];
+let maskedHeaders = [];
+let maskedColumns = [];
+let sortColumn = null;
+let sortReverse = false;
+
+// ─── API ─────────────────────────────────────────────────────────────
+
+async function api(path, body, timeoutMs) {
+  const opts = { headers: { "X-Session-Token": TOKEN } };
+  if (body !== undefined) {
+    opts.method = "POST";
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  if (timeoutMs) {
+    const ctrl = new AbortController();
+    opts.signal = ctrl.signal;
+    setTimeout(() => ctrl.abort(), timeoutMs);
+  }
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+// ─── SSE ─────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  const es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.version !== appState.version) fetchState();
+  };
+  es.onerror = () => { setTimeout(connectSSE, 3000); es.close(); };
+}
+
+async function fetchState() {
+  try {
+    const s = await api("/api/state");
+    appState = s;
+    render(s);
+  } catch (e) { console.error("fetchState:", e); }
+}
+
+// ─── Render ──────────────────────────────────────────────────────────
+
+function render(s) {
+  // Connection dot
+  const dot = document.getElementById("conn-dot");
+  if (s.connection.verified) {
+    dot.className = "conn-dot ok";
+    dot.title = "Подключено";
+  } else {
+    dot.className = "conn-dot fail";
+    dot.title = "Не подключено";
+  }
+
+  // URL field (set once)
+  const urlEl = document.getElementById("url");
+  if (s.connection.url && !urlEl.value) urlEl.value = s.connection.url;
+
+  // Token hint — show placeholder if saved token exists
+  const tokenEl = document.getElementById("token");
+  if (s.has_saved_token && !tokenEl.value) {
+    tokenEl.placeholder = "Сохранённый ключ (\u2022\u2022\u2022)";
+  }
+
+  // Per-session mask fields — never prefill from defaults (they merge on backend)
+
+  // Session meta
+  const metaEl = document.getElementById("meta-session");
+  if (s.session_id) {
+    metaEl.textContent = s.session_id + " \u00b7 " + (s.mode || "direct");
+    metaEl.style.display = "";
+  } else {
+    metaEl.style.display = "none";
+  }
+
+  // Task
+  document.getElementById("task-text").textContent = s.task || "Ожидаю задачу от контроллера";
+
+  // Query state badge
+  const qs = document.getElementById("query-state");
+  qs.className = "state-badge sb-" + s.query_state;
+  qs.querySelector(".state-label").textContent = s.query_state_text;
+
+  // Cancel button visibility
+  const cancelBtn = document.getElementById("cancel-btn");
+  if (cancelBtn) cancelBtn.style.display = s.query_state === "running" ? "" : "none";
+
+  // Result data
+  resultRows = s.result.rows || [];
+  resultHeaders = s.result.headers || [];
+  rebuildFilterColumns();
+  // Masked data — must be set BEFORE applyResultView so interleaved columns work
+  maskedRows = (s.masked_result && s.masked_result.rows) || [];
+  maskedHeaders = (s.masked_result && s.masked_result.headers) || [];
+  maskedColumns = (s.masked_result && s.masked_result.masked_columns) || [];
+
+  applyResultView();
+  if (s.result.placeholder && !resultRows.length) showPlaceholder(s.result.placeholder, s.result.placeholder_error);
+
+  // Bundle
+  document.getElementById("bundle-text").textContent = s.bundle_text || "";
+
+  // Analysis
+  document.getElementById("analysis-masked").textContent = s.analysis_masked || "";
+  document.getElementById("analysis-display").textContent = s.analysis_display || "";
+
+  // Raw
+  document.getElementById("query-preview").textContent = s.query_preview || "";
+  const rawEl = document.getElementById("raw-response");
+  rawEl.textContent = s.raw_response || "";
+  rawEl.className = "text-panel raw-border-" + (s.raw_state || "neutral");
+
+  // Status bar
+  document.getElementById("status-text").textContent = s.status || "Готово";
+  document.getElementById("status-security").textContent = s.security_hint || "";
+  document.getElementById("status-session").textContent = s.session_id ? "ID: " + s.session_id : "";
+  document.getElementById("status-bridge").textContent = s.bridge_info || "";
+
+  // Bridge secret & address on MCP tab
+  const bsEl = document.getElementById("bridge-secret-text");
+  if (s.bridge_secret) bsEl.textContent = s.bridge_secret;
+  document.getElementById("bridge-addr").textContent = s.bridge_info || "";
+
+  // Active tab from server
+  // Tab switching is user-driven only — no auto-switch from server
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────
+
+function showTab(name, btn) {
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  const panel = document.getElementById("tab-" + name);
+  if (panel) panel.classList.add("active");
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  if (btn) { btn.classList.add("active"); }
+  else {
+    const btns = document.querySelectorAll("#toolbar .tab-btn");
+    const map = { result: 0, bundle: 1, analysis: 2, raw: 3, settings: 4 };
+    if (map[name] !== undefined && btns[map[name]]) btns[map[name]].classList.add("active");
+  }
+  if (name === "settings") loadSettingsForm();
+}
+
+// ─── Result Table ────────────────────────────────────────────────────
+
+function rebuildFilterColumns() {
+  const sel = document.getElementById("result-filter-col");
+  const cur = sel.value;
+  sel.innerHTML = "<option>Все поля</option>";
+  resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; sel.appendChild(o); });
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+function applyResultView() {
+  cellAnchor = null; cellRange = null; cellDragging = false;
+  const filterText = (document.getElementById("result-filter").value || "").trim().toLowerCase();
+  const filterCol = document.getElementById("result-filter-col").value;
+
+  let rows = resultRows;
+  if (filterText) {
+    rows = rows.filter(row => {
+      if (filterCol === "Все поля") return resultHeaders.some(h => toText(row[h]).toLowerCase().includes(filterText));
+      return toText(row[filterCol]).toLowerCase().includes(filterText);
+    });
+  }
+
+  if (sortColumn !== null) {
+    rows = [...rows].sort((a, b) => {
+      const va = sortKey(a[sortColumn]), vb = sortKey(b[sortColumn]);
+      let cmp = va[0] !== vb[0] ? va[0] - vb[0] : va[1] < vb[1] ? -1 : va[1] > vb[1] ? 1 : 0;
+      return sortReverse ? -cmp : cmp;
+    });
+  }
+
+  const table = document.getElementById("result-table");
+  const thead = table.querySelector("thead tr");
+  const tbody = table.querySelector("tbody");
+  const ph = document.getElementById("result-placeholder");
+  const wrap = document.getElementById("result-table-wrap");
+  const rc = document.getElementById("row-count");
+
+  if (!resultRows.length) {
+    wrap.style.display = "none";
+    ph.style.display = ""; ph.textContent = "Результат появится здесь после выполнения запроса";
+    ph.className = "result-placeholder";
+    rc.textContent = "";
+    return;
+  }
+
+  // Build interleaved column list: for masked columns insert alias column right after real one
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
+  const displayCols = [];  // {header, isMasked, srcHeader}
+  resultHeaders.forEach(h => {
+    displayCols.push({ header: h, isMasked: false, srcHeader: h });
+    if (hasMasked && maskedColumns.includes(h)) {
+      displayCols.push({ header: h + " (шифр)", isMasked: true, srcHeader: h });
+    }
+  });
+
+  thead.innerHTML = "";
+  displayCols.forEach(col => {
+    const th = document.createElement("th");
+    th.textContent = col.header;
+    if (col.isMasked) th.classList.add("masked-col");
+    if (col.header === sortColumn) {
+      const arrow = document.createElement("span");
+      arrow.className = "sort-arrow";
+      arrow.textContent = sortReverse ? " \u2193" : " \u2191";
+      th.appendChild(arrow);
+    }
+    if (!col.isMasked) th.onclick = () => toggleSort(col.header);
+    thead.appendChild(th);
+  });
+
+  tbody.innerHTML = "";
+  if (!rows.length) {
+    wrap.style.display = "none";
+    ph.style.display = ""; ph.textContent = "По фильтру ничего не найдено";
+    ph.className = "result-placeholder";
+    rc.textContent = "0 из " + resultRows.length;
+    return;
+  }
+
+  ph.style.display = "none";
+  wrap.style.display = "";
+  rc.textContent = rows.length === resultRows.length ? rows.length + " строк" : rows.length + " из " + resultRows.length;
+
+  rows.forEach((row, ri) => {
+    const tr = document.createElement("tr");
+    const maskedRow = hasMasked && maskedRows[ri] ? maskedRows[ri] : null;
+    displayCols.forEach((col, ci) => {
+      const td = document.createElement("td");
+      let v;
+      if (col.isMasked) {
+        v = maskedRow ? toText(maskedRow[col.srcHeader]) : "";
+        td.classList.add("masked-col");
+      } else {
+        v = toText(row[col.srcHeader]);
+      }
+      td.textContent = v;
+      td.title = v;
+      td.dataset.r = ri;
+      td.dataset.c = ci;
+      td.onmousedown = (e) => cellMouseDown(e, ri, ci);
+      td.onmouseover = (e) => { if (e.buttons === 1 && cellDragging) cellDragTo(ri, ci); };
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+// renderMaskedTable removed — masked data merged into main table
+
+function showPlaceholder(text, isError) {
+  const ph = document.getElementById("result-placeholder");
+  const wrap = document.getElementById("result-table-wrap");
+  ph.textContent = text;
+  ph.className = "result-placeholder" + (isError ? " error" : "");
+  ph.style.display = "";
+  wrap.style.display = "none";
+}
+
+function toggleSort(col) {
+  if (sortColumn === col) sortReverse = !sortReverse;
+  else { sortColumn = col; sortReverse = false; }
+  applyResultView();
+}
+
+function sortKey(val) {
+  if (val == null) return [2, ""];
+  const s = String(val).replace(/\u00A0/g, "").replace(/ /g, "").replace(",", ".");
+  const n = parseFloat(s);
+  if (!isNaN(n)) return [0, n];
+  return [1, String(val).toLowerCase()];
+}
+
+// ─── Cell selection (Excel-like) ─────────────────────────────────
+let cellAnchor = null;   // {r, c}
+let cellRange = null;    // {r1, c1, r2, c2}
+let cellDragging = false;
+
+function cellMouseDown(e, r, c) {
+  e.preventDefault();
+  if (e.shiftKey && cellAnchor) {
+    cellRange = makeRange(cellAnchor.r, cellAnchor.c, r, c);
+    cellDragging = true;
+  } else {
+    cellAnchor = { r, c };
+    cellRange = makeRange(r, c, r, c);
+    cellDragging = true;
+  }
+  paintCellSelection();
+}
+
+function cellDragTo(r, c) {
+  if (!cellAnchor) return;
+  cellRange = makeRange(cellAnchor.r, cellAnchor.c, r, c);
+  paintCellSelection();
+}
+
+document.addEventListener("mouseup", () => { cellDragging = false; });
+
+function makeRange(r1, c1, r2, c2) {
+  return { r1: Math.min(r1, r2), c1: Math.min(c1, c2), r2: Math.max(r1, r2), c2: Math.max(c1, c2) };
+}
+
+function paintCellSelection() {
+  const tbody = document.querySelector("#result-table tbody");
+  if (!tbody) return;
+  tbody.querySelectorAll("td.cell-selected, td.cell-anchor").forEach(td => {
+    td.classList.remove("cell-selected", "cell-anchor");
+  });
+  if (!cellRange) return;
+  const rows = tbody.children;
+  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < rows.length; ri++) {
+    const cells = rows[ri].children;
+    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < cells.length; ci++) {
+      cells[ci].classList.add("cell-selected");
+    }
+  }
+  if (cellAnchor && cellAnchor.r < rows.length) {
+    const ac = rows[cellAnchor.r].children[cellAnchor.c];
+    if (ac) ac.classList.add("cell-anchor");
+  }
+}
+
+// Ctrl+C / Cmd+C on table (e.code works regardless of keyboard layout)
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "с") && cellRange) {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+    e.preventDefault();
+    copyCellSelection();
+  }
+});
+
+function clearFilter() {
+  document.getElementById("result-filter").value = "";
+  document.getElementById("result-filter-col").value = "Все поля";
+  applyResultView();
+}
+
+function toText(v) { return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v); }
+
+// ─── Clipboard ───────────────────────────────────────────────────────
+
+function copyCellSelection() {
+  if (!cellRange) { toast("Нет выделения"); return; }
+  const tbody = document.querySelector("#result-table tbody");
+  if (!tbody) return;
+  const lines = [];
+  const rows = tbody.children;
+  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < rows.length; ri++) {
+    const cells = rows[ri].children;
+    const vals = [];
+    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < cells.length; ci++) {
+      vals.push(cells[ci].textContent);
+    }
+    lines.push(vals.join("\t"));
+  }
+  const total = (cellRange.r2 - cellRange.r1 + 1) * (cellRange.c2 - cellRange.c1 + 1);
+  navigator.clipboard.writeText(lines.join("\n")).then(() =>
+    toast("Скопировано " + (total === 1 ? "1 ячейка" : total + " ячеек"))
+  );
+}
+
+function copyAllRows() {
+  if (!resultRows.length) { toast("Нет данных"); return; }
+  const lines = [resultHeaders.join("\t")];
+  resultRows.forEach(row => lines.push(resultHeaders.map(h => toText(row[h])).join("\t")));
+  navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Скопировано " + resultRows.length + " строк"));
+}
+
+function copyBundle() {
+  const t = document.getElementById("bundle-text").textContent;
+  if (!t) return;
+  navigator.clipboard.writeText(t).then(() => toast("Данные скопированы"));
+}
+
+function copyBridgeSecret() {
+  const t = document.getElementById("bridge-secret-text").textContent;
+  if (!t || t === "—") return;
+  navigator.clipboard.writeText(t).then(() => toast("Bridge Secret скопирован"));
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────
+
+async function doConnect() {
+  const url = document.getElementById("url").value.trim();
+  const token = document.getElementById("token").value;
+  if (!url) { toast("Введите MCP URL"); return; }
+  const dot = document.getElementById("conn-dot");
+  dot.className = "conn-dot pulse";
+  const payload = { url, token };
+  if (!token && appState.has_saved_token) payload.use_saved_token = true;
+  try {
+    const r = await api("/api/connect", payload, 60000);
+    if (r.ok) toast("Подключено");
+    else toast("Ошибка: " + (r.error || "?").substring(0, 100));
+  } catch (e) {
+    if (e.name === "AbortError") toast("Таймаут подключения (60 сек)");
+    else toast("Ошибка: " + e.message);
+  }
+}
+
+async function doQuery(mode) {
+  const queryText = document.getElementById("query-input").value.trim();
+  if (!queryText) { toast("Введите текст запроса"); return; }
+  if (!appState.connection || !appState.connection.verified) { toast("Сначала подключитесь к серверу"); return; }
+  const forceMask = document.getElementById("force-mask").value;
+  const allowPlain = document.getElementById("allow-plain").value;
+  document.getElementById("btn-query-direct").disabled = true;
+  document.getElementById("btn-query-masked").disabled = true;
+  try {
+    const r = await api("/api/query", {
+      task: "Запрос из UI",
+      query_text: queryText,
+      mode: mode,
+      force_mask_fields: forceMask,
+      allow_plain_fields: allowPlain
+    }, 310000);
+    if (r.ok) {
+      toast("Запрос выполнен (" + mode + ")");
+    } else {
+      toast("Ошибка: " + (r.message || r.error || "?").substring(0, 150));
+    }
+  } catch (e) {
+    if (e.name === "AbortError") toast("Таймаут запроса (300 сек)");
+    else toast("Ошибка: " + e.message);
+  } finally {
+    document.getElementById("btn-query-direct").disabled = false;
+    document.getElementById("btn-query-masked").disabled = false;
+  }
+}
+
+async function doCancelQuery() {
+  try {
+    const r = await api("/api/cancel_query", {});
+    if (r.ok) toast("Запрос отменён");
+  } catch (e) {
+    toast("Ошибка отмены: " + e.message);
+  }
+}
+
+function clearToken() {
+  document.getElementById("token").value = "";
+  api("/api/disconnect", {});
+}
+
+async function doClearSession() {
+  await api("/api/clear_session", {});
+  sortColumn = null; sortReverse = false;
+  toast("Сессия очищена");
+}
+
+function setTheme(name) {
+  document.body.className = "theme-" + name;
+  api("/api/theme", { theme: name });
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2500);
+}
+
+// ─── Settings ────────────────────────────────────────────────────────
+
+async function loadSettingsForm() {
+  try {
+    const s = await api("/api/settings");
+    console.log("[Settings] /api/settings response:", JSON.stringify(s));
+    document.getElementById("s-mcp-url").value = s.mcp_url || "";
+    document.getElementById("s-mcp-token").value = "";
+    const hint = document.getElementById("s-token-hint");
+    if (s.mcp_token_saved) { hint.style.display = ""; hint.textContent = "\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043a\u043b\u044e\u0447 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043f\u043e\u043b\u0435 \u043f\u0443\u0441\u0442\u044b\u043c, \u0447\u0442\u043e\u0431\u044b \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c."; }
+    else { hint.style.display = "none"; }
+    document.getElementById("s-preview-chars").value = s.defaults_preview_chars || 4000;
+    document.getElementById("s-auto-execute").checked = !!s.defaults_auto_execute;
+    document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
+    document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
+}
+
+async function saveSettings() {
+  const payload = {
+    mcp_url: document.getElementById("s-mcp-url").value.trim(),
+    mcp_token: document.getElementById("s-mcp-token").value,
+    defaults_preview_chars: parseInt(document.getElementById("s-preview-chars").value) || 4000,
+    defaults_auto_execute: document.getElementById("s-auto-execute").checked,
+    defaults_force_mask_fields: document.getElementById("s-force-mask").value.trim(),
+    defaults_allow_plain_fields: document.getElementById("s-allow-plain").value.trim(),
+  };
+  try {
+    const r = await api("/api/settings", payload);
+    if (r.ok) {
+      toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b \u0438 \u0437\u0430\u0448\u0438\u0444\u0440\u043e\u0432\u0430\u043d\u044b");
+      const urlEl = document.getElementById("url");
+      if (payload.mcp_url) urlEl.value = payload.mcp_url;
+    } else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + e.message); }
+}
+
+async function resetSettings() {
+  if (!confirm("\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u0441\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438? \u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0432\u0435\u0440\u043d\u0451\u0442\u0441\u044f \u043a \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u044f\u043c \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e.")) return;
+  try {
+    const r = await api("/api/settings/reset", {});
+    if (r.ok) { toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u044b"); loadSettingsForm(); }
+    else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + e.message); }
+}
+
+function importSettings(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const r = await api("/api/settings/import", data);
+      if (r.ok) { toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u044b"); loadSettingsForm(); }
+      else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+    } catch (err) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0447\u0442\u0435\u043d\u0438\u044f \u0444\u0430\u0439\u043b\u0430: " + err.message); }
+  };
+  reader.readAsText(file);
+  input.value = "";
+}
+
+function toggleTokenVis() {
+  const inp = document.getElementById("s-mcp-token");
+  inp.type = inp.type === "password" ? "text" : "password";
+}
+
+// ─── Init ────────────────────────────────────────────────────────────
+
+fetchState().then(() => {
+  connectSSE();
+  // Auto-connect if we have saved settings with URL
+  if (appState.has_saved_settings && appState.connection && appState.connection.url && !appState.connection.verified) {
+    doConnect();
+  }
+});
+</script>
+</body>
+</html>
