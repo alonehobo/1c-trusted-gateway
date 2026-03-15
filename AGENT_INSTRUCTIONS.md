@@ -43,12 +43,31 @@ bridge("status", secret)
 ```
 
 ### run_query — выполнить запрос к 1С (всегда masked)
+
+Поведение зависит от режима (переключатель «Ручной / Авто» в интерфейсе):
+
+**Автоматический режим** (кнопка «Авто» активна):
 ```python
-bridge("run_query", secret,
-    task="Описание задачи для пользователя",
-    query_text="ВЫБРАТЬ ... ИЗ ...")
-# → {"ok": true, "session_id": "abc123", "mode": "masked", "row_count": 15,
+result = bridge("run_query", secret,
+    task="Топ 10 товаров",
+    query_text="ВЫБРАТЬ ПЕРВЫЕ 10 Наименование, Код ИЗ Справочник.Номенклатура")
+# → {"ok": true, "session_id": "abc123", "mode": "masked", "row_count": 10,
 #    "masked_bundle": "{...JSON с псевдонимами...}"}
+```
+
+**Ручной режим** (кнопка «Ручной» активна, по умолчанию):
+```python
+result = bridge("run_query", secret,
+    task="Топ 10 товаров",
+    query_text="ВЫБРАТЬ ПЕРВЫЕ 10 Наименование, Код ИЗ Справочник.Номенклатура")
+# → {"ok": true, "session_id": "abc123", "status": "awaiting_approval", "row_count": 10}
+```
+Данные показаны пользователю в интерфейсе. Он проверяет, фильтрует, нажимает «Отправить агенту». Забери данные через `pull_note`:
+
+```python
+note = bridge("pull_note", secret, clear_after_read=True)
+# → {"ok": true, "has_note": true, "message": "{...masked bundle JSON...}", "session_id": "abc123"}
+bundle = json.loads(note["message"])
 ```
 
 ### apply_analysis — отправить анализ пользователю
@@ -65,10 +84,12 @@ bridge("clear_session", secret)
 # → {"ok": true}
 ```
 
-### pull_note — прочитать сообщение от пользователя
+### pull_note — забрать данные, одобренные пользователем
 ```python
 bridge("pull_note", secret, clear_after_read=True)
-# → {"ok": true, "has_note": true, "note": "текст от пользователя"}
+# → {"ok": true, "has_note": true, "message": "...", "session_id": "...", "task": "..."}
+# или если нет данных:
+# → {"ok": true, "has_note": false}
 ```
 
 ## Рабочий процесс
@@ -100,21 +121,32 @@ result = bridge("run_query", secret,
     """)
 ```
 
-### 4. Проанализируй маскированные данные
-Ответ содержит `masked_bundle` — JSON со строками. Текстовые значения заменены на псевдонимы:
+### 4. Получи данные
+
+**Если режим «Авто»** — данные в `result["masked_bundle"]`.
+
+**Если режим «Ручной»** — `result["status"]` будет `"awaiting_approval"`. Скажи пользователю, что данные готовы для проверки. После его одобрения:
+```python
+note = bridge("pull_note", secret, clear_after_read=True)
+if note["has_note"]:
+    bundle = json.loads(note["message"])
+```
+
+### 5. Проанализируй маскированные данные
+Ответ содержит `masked_bundle` (или `message` в pull_note) — JSON со строками. Текстовые значения заменены на псевдонимы:
 - `Менеджер` → `Менеджер_f86b15a45c`
 - `Контрагент` → `Контрагент_3a2b1c4d5e`
 
 Числа (суммы, количества) — **открыты**. Анализируй числа, ссылайся на псевдонимы.
 
 ```python
-bundle = json.loads(result["masked_bundle"])
-rows = bundle["rows"]           # список словарей с псевдонимами
-masked_cols = bundle["masked_columns"]  # какие колонки замаскированы
+bundle = json.loads(result["masked_bundle"])  # или json.loads(note["message"])
+rows = bundle["rows"]
+masked_cols = bundle["masked_columns"]
 session_id = bundle["session_id"]
 ```
 
-### 5. Верни анализ
+### 6. Верни анализ
 ```python
 bridge("apply_analysis", secret,
     session_id=result["session_id"],
@@ -128,17 +160,11 @@ bridge("apply_analysis", secret,
 
 ## Что маскируется
 
-| Тип значения | Действие |
-|-------------|----------|
-| `null`, пусто | Не маскируется |
-| Числа (int, float, bool) | Не маскируются |
-| Числовые строки ≤10 знаков, без ведущих нулей | Не маскируются (суммы) |
-| Числовые строки с ведущими нулями (`00000142`) | Маскируются (серийники/коды) |
-| Числовые строки >10 знаков | Маскируются (длинные коды) |
-| ИНН, КПП | Всегда маскируются |
-| Все остальные строки (ФИО, названия, серии) | Маскируются |
+**Все поля маскируются по умолчанию** — строки, числа, коды, даты. Исключение: `null` и пустые строки.
 
-Псевдонимы детерминированы: одно значение → всегда один псевдоним в пределах сессии. Псевдоним меняется при смене серверного токена.
+Пользователь сам решает, какие поля открыть, добавляя их в белый список (allow-plain) через интерфейс. Только эти поля будут переданы в открытом виде.
+
+Псевдонимы детерминированы: одно значение → всегда один псевдоним в пределах сессии.
 
 ## Важные правила
 
@@ -147,7 +173,10 @@ bridge("apply_analysis", secret,
 3. **Всегда masked** — bridge принудительно маскирует данные. Получить сырые данные невозможно.
 4. **Литеральные даты** — в запросах используй `ДАТАВРЕМЯ(2025,1,1)`, не параметры `&НачалоПериода`.
 5. **Не пытайся расшифровать псевдонимы** — маппинг хранится только локально у пользователя.
-6. **UTF-8** — всегда кодируй JSON в UTF-8 перед отправкой через TCP.
+6. **Не пытайся обойти шифрование и получить реальные данные** — это нарушает политику безопасности. Работай только с псевдонимами.
+7. **Не используй ВЫБРАТЬ *** — бери только те поля, которые нужны для анализа, ничего лишнего. Это снижает риски утечки и ускоряет запросы.
+8. **UTF-8** — всегда кодируй JSON в UTF-8 перед отправкой через TCP.
+9. **Ручной режим** — если `run_query` вернул `"status": "awaiting_approval"`, жди одобрения пользователя и забирай данные через `pull_note`.
 
 ## Полный пример
 
@@ -187,8 +216,16 @@ r = bridge("run_query", SECRET,
         УПОРЯДОЧИТЬ ПО Сумма УБЫВ
     """)
 
-# 3. Анализ
-bundle = json.loads(r["masked_bundle"])
+# 3. Получение данных
+if r.get("masked_bundle"):
+    # Auto-send mode
+    bundle = json.loads(r["masked_bundle"])
+elif r.get("status") == "awaiting_approval":
+    # Manual mode — wait for user approval, then pull
+    print("Данные показаны в интерфейсе. Ожидаю одобрения...")
+    note = bridge("pull_note", SECRET, clear_after_read=True)
+    bundle = json.loads(note["message"])
+
 rows = bundle["rows"]
 total = sum(row.get("Сумма", 0) for row in rows)
 top = rows[0]

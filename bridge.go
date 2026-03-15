@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -85,10 +86,17 @@ func (b *TrustedBridgeServer) acceptLoop() {
 	}
 }
 
+const (
+	bridgeReadTimeout  = 30 * time.Second
+	bridgeWriteTimeout = 30 * time.Second
+	bridgeMaxPayload   = 2 * 1024 * 1024 // 2 MB
+)
+
 func (b *TrustedBridgeServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	raw, err := io.ReadAll(conn)
+	conn.SetReadDeadline(time.Now().Add(bridgeReadTimeout))
+	raw, err := io.ReadAll(io.LimitReader(conn, bridgeMaxPayload))
 	if err != nil || len(raw) == 0 {
 		return
 	}
@@ -103,6 +111,7 @@ func (b *TrustedBridgeServer) handleConnection(conn net.Conn) {
 
 	response := b.dispatch(payload)
 	data, _ := json.Marshal(response)
+	conn.SetWriteDeadline(time.Now().Add(bridgeWriteTimeout))
 	conn.Write(data)
 }
 
@@ -121,45 +130,50 @@ func (b *TrustedBridgeServer) dispatch(payload map[string]any) map[string]any {
 		command = strings.TrimSpace(strings.ToLower(fmt.Sprintf("%v", v)))
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	switch command {
-	case "status":
-		result := b.Callbacks.Status()
-		result["ok"] = true
-		return result
-
 	case "run_query":
+		// run_query is long-running — execute outside mutex to avoid blocking other commands
 		task := getStringField(payload, "task")
 		queryText := getStringField(payload, "query_text")
 		// Bridge always forces masked mode
 		mode := "masked"
 		return b.Callbacks.RunQuery(task, queryText, mode)
 
-	case "apply_analysis":
-		var sessionID *string
-		if v, ok := payload["session_id"]; ok && v != nil {
-			s := fmt.Sprintf("%v", v)
-			sessionID = &s
-		}
-		analysisText := getStringField(payload, "analysis_text")
-		return b.Callbacks.ApplyAnalysis(sessionID, analysisText)
-
-	case "clear_session":
-		return b.Callbacks.ClearSession()
-
-	case "pull_note":
-		clearAfterRead := true
-		if v, ok := payload["clear_after_read"]; ok {
-			if bv, ok := v.(bool); ok {
-				clearAfterRead = bv
-			}
-		}
-		return b.Callbacks.PullNote(clearAfterRead)
-
 	default:
-		return map[string]any{"ok": false, "error": fmt.Sprintf("Unknown bridge command: %s", command)}
+		// Short commands run under mutex for state consistency
+		b.mu.Lock()
+		defer b.mu.Unlock()
+
+		switch command {
+		case "status":
+			result := b.Callbacks.Status()
+			result["ok"] = true
+			return result
+
+		case "apply_analysis":
+			var sessionID *string
+			if v, ok := payload["session_id"]; ok && v != nil {
+				s := fmt.Sprintf("%v", v)
+				sessionID = &s
+			}
+			analysisText := getStringField(payload, "analysis_text")
+			return b.Callbacks.ApplyAnalysis(sessionID, analysisText)
+
+		case "clear_session":
+			return b.Callbacks.ClearSession()
+
+		case "pull_note":
+			clearAfterRead := true
+			if v, ok := payload["clear_after_read"]; ok {
+				if bv, ok := v.(bool); ok {
+					clearAfterRead = bv
+				}
+			}
+			return b.Callbacks.PullNote(clearAfterRead)
+
+		default:
+			return map[string]any{"ok": false, "error": fmt.Sprintf("Unknown bridge command: %s", command)}
+		}
 	}
 }
 
@@ -178,8 +192,9 @@ func SendBridgeCommand(payload map[string]any, secret, host string, port int, ti
 	}
 	enriched["secret"] = secret
 
-	addr := fmt.Sprintf("%s:%d", host, port)
-	conn, err := net.Dial("tcp", addr)
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +212,9 @@ func SendBridgeCommand(payload map[string]any, secret, host string, port int, ti
 		tc.CloseWrite()
 	}
 
-	respData, err := io.ReadAll(conn)
+	readTimeout := time.Duration(timeoutSeconds)*time.Second + 10*time.Second
+	conn.SetReadDeadline(time.Now().Add(readTimeout))
+	respData, err := io.ReadAll(io.LimitReader(conn, bridgeMaxPayload))
 	if err != nil {
 		return nil, err
 	}

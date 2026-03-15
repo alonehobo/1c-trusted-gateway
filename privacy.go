@@ -11,15 +11,12 @@ import (
 )
 
 var (
-	uuidPattern = regexp.MustCompile(
-		`^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$`,
-	)
-	alwaysSensitiveFields = map[string]bool{
-		"инн": true,
-		"кпп": true,
-	}
 	numericPattern = regexp.MustCompile(`^[+-]?\d+(?:\.\d+)?$`)
 	wordPattern    = regexp.MustCompile(`[A-Za-zА-Яа-яЁё0-9]+`)
+
+	// DefaultAllowPlainKeywords is empty — all fields are masked by default.
+	// Users add fields to the white-list explicitly via UI or settings.
+	DefaultAllowPlainKeywords = []string{}
 )
 
 // SanitizedResult holds the result of data sanitization.
@@ -28,26 +25,31 @@ type SanitizedResult struct {
 	DisplayRows     []map[string]any `json:"display_rows"`
 	AliasToOriginal map[string]string `json:"alias_to_original"`
 	MaskedColumns   []string          `json:"masked_columns"`
+	UnmaskedColumns []string          `json:"unmasked_columns"`
 }
 
 // DataSanitizer masks sensitive data in query results.
+// Policy: mask ALL fields by default; only allow-listed fields pass through.
 type DataSanitizer struct {
-	salt        string
-	aliasLength int
+	salt             string
+	aliasLength      int
+	allowKeywords    []string // substrings to match in field names for allow-list
 }
 
-// NewDataSanitizer creates a new sanitizer with the given salt and alias length.
-func NewDataSanitizer(salt string, aliasLength int) *DataSanitizer {
+// NewDataSanitizer creates a new sanitizer.
+func NewDataSanitizer(salt string, aliasLength int, _ int) *DataSanitizer {
 	if aliasLength <= 0 {
 		aliasLength = 10
 	}
 	return &DataSanitizer{
-		salt:        salt,
-		aliasLength: aliasLength,
+		salt:          salt,
+		aliasLength:   aliasLength,
+		allowKeywords: DefaultAllowPlainKeywords,
 	}
 }
 
-// SanitizeRows masks sensitive values in the given rows.
+// SanitizeRows masks values in the given rows.
+// Policy: mask everything by default. Only allow-listed fields and explicit allowPlainFields pass through.
 func (ds *DataSanitizer) SanitizeRows(
 	rows []map[string]any,
 	forceMaskFields map[string]bool,
@@ -56,6 +58,7 @@ func (ds *DataSanitizer) SanitizeRows(
 	aliasToOriginal := make(map[string]string)
 	originalToAlias := make(map[string]string)
 	maskedColumnsSet := make(map[string]bool)
+	unmaskedColumnsSet := make(map[string]bool)
 	maskedRows := make([]map[string]any, 0, len(rows))
 
 	forceMask := normalizeFieldSet(forceMaskFields)
@@ -64,38 +67,112 @@ func (ds *DataSanitizer) SanitizeRows(
 	for _, row := range rows {
 		maskedRow := make(map[string]any, len(row))
 		for fieldName, value := range row {
-			if ds.shouldMask(fieldName, value, forceMask, allowPlain) {
-				alias := ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
-				maskedRow[fieldName] = alias
+			maskedValue := ds.maskValue(fieldName, value, forceMask, allowPlain, originalToAlias, aliasToOriginal)
+			maskedRow[fieldName] = maskedValue
+			if !valueEqual(value, maskedValue) {
 				maskedColumnsSet[fieldName] = true
 			} else {
-				maskedRow[fieldName] = value
+				unmaskedColumnsSet[fieldName] = true
 			}
 		}
 		maskedRows = append(maskedRows, maskedRow)
 	}
 
-	maskedColumns := make([]string, 0, len(maskedColumnsSet))
-	for col := range maskedColumnsSet {
-		maskedColumns = append(maskedColumns, col)
-	}
-	sort.Strings(maskedColumns)
+	maskedColumns := sortedKeys(maskedColumnsSet)
+	unmaskedColumns := sortedKeys(unmaskedColumnsSet)
 
 	return &SanitizedResult{
 		MaskedRows:      maskedRows,
 		DisplayRows:     rows,
 		AliasToOriginal: aliasToOriginal,
 		MaskedColumns:   maskedColumns,
+		UnmaskedColumns: unmaskedColumns,
 	}
 }
 
+// maskValue recursively masks a value. Returns masked version.
+func (ds *DataSanitizer) maskValue(
+	fieldName string,
+	value any,
+	forceMask map[string]bool,
+	allowPlain map[string]bool,
+	originalToAlias map[string]string,
+	aliasToOriginal map[string]string,
+) any {
+	if value == nil {
+		return nil
+	}
+
+	// Recursively process nested maps
+	if m, ok := value.(map[string]any); ok {
+		masked := make(map[string]any, len(m))
+		for k, v := range m {
+			masked[k] = ds.maskValue(k, v, forceMask, allowPlain, originalToAlias, aliasToOriginal)
+		}
+		return masked
+	}
+
+	// Recursively process nested slices
+	if arr, ok := value.([]any); ok {
+		masked := make([]any, len(arr))
+		for i, v := range arr {
+			masked[i] = ds.maskValue(fieldName, v, forceMask, allowPlain, originalToAlias, aliasToOriginal)
+		}
+		return masked
+	}
+
+	// Booleans never masked
+	if _, ok := value.(bool); ok {
+		return value
+	}
+
+	// Check if field is explicitly allow-listed
+	normalizedName := normalizeFieldName(fieldName)
+
+	// Force-mask always wins
+	if forceMask[normalizedName] {
+		return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
+	}
+
+	// Explicit allow-plain from user
+	if allowPlain[normalizedName] {
+		return value
+	}
+
+	// Check built-in allow keywords (Количество, Цена, Сумма, НДС)
+	if ds.matchesAllowKeyword(normalizedName) {
+		return value
+	}
+
+	// Empty strings pass through
+	text := strings.TrimSpace(fmt.Sprintf("%v", value))
+	if text == "" {
+		return value
+	}
+
+	// Mask everything else (strings, numbers, etc.)
+	return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
+}
+
+// matchesAllowKeyword checks if field name contains any allow-list keyword.
+func (ds *DataSanitizer) matchesAllowKeyword(normalizedFieldName string) bool {
+	for _, kw := range ds.allowKeywords {
+		if strings.Contains(normalizedFieldName, kw) {
+			return true
+		}
+	}
+	return false
+}
+
 // RehydrateText replaces aliases in text with their original values.
+// Uses strings.Replacer for efficient single-pass replacement.
 func RehydrateText(text string, aliasToOriginal map[string]string) string {
 	if text == "" || len(aliasToOriginal) == 0 {
 		return text
 	}
 
-	// Collect aliases that appear in text
+	// Collect aliases that appear in text, sorted by length descending
+	// so longer aliases are replaced first (prevents partial matches).
 	type pair struct {
 		alias    string
 		original string
@@ -106,73 +183,20 @@ func RehydrateText(text string, aliasToOriginal map[string]string) string {
 			pairs = append(pairs, pair{alias, original})
 		}
 	}
+	if len(pairs) == 0 {
+		return text
+	}
 
-	// Sort by alias length descending to replace longer aliases first
 	sort.Slice(pairs, func(i, j int) bool {
 		return len(pairs[i].alias) > len(pairs[j].alias)
 	})
 
-	result := text
+	// Build a Replacer for single-pass replacement
+	args := make([]string, 0, len(pairs)*2)
 	for _, p := range pairs {
-		result = strings.ReplaceAll(result, p.alias, p.original)
+		args = append(args, p.alias, p.original)
 	}
-	return result
-}
-
-func (ds *DataSanitizer) shouldMask(
-	fieldName string,
-	value any,
-	forceMaskFields map[string]bool,
-	allowPlainFields map[string]bool,
-) bool {
-	normalizedName := normalizeFieldName(fieldName)
-
-	if value == nil {
-		return false
-	}
-
-	switch value.(type) {
-	case map[string]any, []any:
-		return false
-	}
-
-	if forceMaskFields[normalizedName] {
-		return true
-	}
-
-	switch value.(type) {
-	case int, int64, float64, bool:
-		return false
-	}
-
-	text := strings.TrimSpace(fmt.Sprintf("%v", value))
-	if text == "" {
-		return false
-	}
-
-	if allowPlainFields[normalizedName] {
-		return false
-	}
-
-	if alwaysSensitiveFields[normalizedName] {
-		return true
-	}
-
-	if looksNumeric(text) {
-		// Leading zeros = code/serial, not a real number (e.g. "00000142")
-		if len(text) > 1 && text[0] == '0' && text[1] != '.' {
-			// fall through to mask
-		} else if len([]rune(text)) <= 10 {
-			// Short numbers (≤10 chars) are amounts, not serials
-			return false
-		}
-	}
-
-	if uuidPattern.MatchString(text) {
-		return true
-	}
-
-	return true
+	return strings.NewReplacer(args...).Replace(text)
 }
 
 func (ds *DataSanitizer) aliasFor(
@@ -261,4 +285,28 @@ func normalizeFieldSet(fields map[string]bool) map[string]bool {
 		normalized[normalizeFieldName(f)] = true
 	}
 	return normalized
+}
+
+func valueEqual(a, b any) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// AllowPlainKeywordsCSV returns the default allow-list keywords as a comma-separated string.
+func AllowPlainKeywordsCSV() string {
+	return strings.Join(DefaultAllowPlainKeywords, ", ")
 }

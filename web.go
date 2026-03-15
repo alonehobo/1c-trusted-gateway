@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,6 +18,11 @@ const (
 	DefaultWebHost     = "127.0.0.1"
 	DefaultWebPort     = 8767
 	maxRequestBody     = 1 * 1024 * 1024 // 1 MB
+
+	// Brute-force protection
+	rateLimitWindow    = 5 * time.Second // sliding window size
+	rateLimitMaxPerWin = 3               // max queries per window
+	lowRowStreakMax     = 5              // consecutive ≤1-row results before escalation
 )
 
 // TrustedWebApp holds all application state and logic.
@@ -32,6 +39,7 @@ type TrustedWebApp struct {
 	MaskedResultRows    []map[string]any
 	MaskedResultHeaders []string
 	MaskedColumns       []string
+	UnmaskedColumns     []string
 	PendingAgentNote    map[string]string
 	ThemeName       string
 	TaskText        string
@@ -44,19 +52,35 @@ type TrustedWebApp struct {
 	QueryPreview    string
 	RawResponse     string
 	RawState        string
-	ForceMaskFields string
-	AllowPlainFields string
+	ForceMaskFields        string // per-query tag overrides (reset on each new query)
+	AllowPlainFields       string // per-query tag overrides (reset on each new query)
+	PersistentForceMask    string // persistent UI whitelist — never reset by queries
+	PersistentAllowPlain   string // persistent UI whitelist — never reset by queries
+	ExcludedFields         string // comma-separated list of columns to exclude before masking
 	ActiveTab       string
 	PlaceholderText string
 	PlaceholderError bool
+	RowsTruncated   bool
+	MaxRows         int
+	TotalRowCount   int
 
 	SessionToken string
 	Bridge       *TrustedBridgeServer
 
+	AutoSendToAgent bool
+
+	// Rate-limiter / brute-force detection
+	queryTimestamps       []time.Time // sliding window of bridge query times
+	lowRowStreakCount      int         // consecutive queries with ≤1 row result
+	rateLimitTriggered    bool        // true when brute-force was detected
+	rateLimitMessage      string      // message shown in UI
+
 	queryCancel  context.CancelFunc
 	queryRunning bool
-	sessionLock  sync.Mutex
-	stateVersion int
+	mu           sync.RWMutex
+	stateVersion atomic.Int64
+	dataVersion  int64 // incremented when row data changes (remask, new query, etc.)
+	queryVersion int64 // incremented only on new queries (not remask) — client uses this to reset tag state
 	stateEvent   chan struct{}
 }
 
@@ -82,7 +106,9 @@ func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 	app.Bridge = NewTrustedBridgeServer(
 		BridgeCallbacks{
 			Status:       app.bridgeStatus,
-			RunQuery:     app.bridgeRunQuery,
+			RunQuery: func(task, queryText, mode string) map[string]any {
+				return app.bridgeRunQuery(task, queryText, mode, true)
+			},
 			ApplyAnalysis: app.bridgeApplyAnalysis,
 			ClearSession: app.bridgeClearSession,
 			PullNote:     app.bridgePullNote,
@@ -94,8 +120,9 @@ func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 	return app
 }
 
+// notify increments state version and signals waiters. Caller must hold app.mu (write lock).
 func (app *TrustedWebApp) notify() {
-	app.stateVersion++
+	app.stateVersion.Add(1)
 	select {
 	case app.stateEvent <- struct{}{}:
 	default:
@@ -111,11 +138,66 @@ func (app *TrustedWebApp) waitForChange(timeout time.Duration) {
 	}
 }
 
+// checkBridgeRateLimit checks if the bridge query rate is suspicious.
+// Must be called with app.mu held (write lock).
+// Returns true if the request should be blocked.
+func (app *TrustedWebApp) checkBridgeRateLimit() bool {
+	now := time.Now()
+
+	// Clean old timestamps outside the window
+	cutoff := now.Add(-rateLimitWindow)
+	clean := app.queryTimestamps[:0]
+	for _, t := range app.queryTimestamps {
+		if t.After(cutoff) {
+			clean = append(clean, t)
+		}
+	}
+	app.queryTimestamps = clean
+
+	// Check rate
+	if len(app.queryTimestamps) >= rateLimitMaxPerWin {
+		app.rateLimitTriggered = true
+		app.rateLimitMessage = fmt.Sprintf("⚠️ Защита от перебора: более %d запросов за %d сек. Авто-режим отключён.", rateLimitMaxPerWin, int(rateLimitWindow.Seconds()))
+		app.AutoSendToAgent = false
+		app.notify()
+		return true
+	}
+
+	// Record this request
+	app.queryTimestamps = append(app.queryTimestamps, now)
+	return false
+}
+
+// recordLowRowResult tracks consecutive queries returning ≤1 row.
+// Must be called with app.mu held (write lock).
+func (app *TrustedWebApp) recordLowRowResult(rowCount int) {
+	if rowCount <= 1 {
+		app.lowRowStreakCount++
+		if app.lowRowStreakCount >= lowRowStreakMax && app.AutoSendToAgent {
+			app.rateLimitTriggered = true
+			app.rateLimitMessage = fmt.Sprintf("⚠️ Защита от перебора: %d запросов подряд вернули ≤1 строку. Авто-режим отключён.", app.lowRowStreakCount)
+			app.AutoSendToAgent = false
+			app.notify()
+		}
+	} else {
+		app.lowRowStreakCount = 0
+	}
+}
+
+// resetRateLimit clears rate limit state. Called when user manually re-enables auto mode.
+// Must be called with app.mu held (write lock).
+func (app *TrustedWebApp) resetRateLimit() {
+	app.rateLimitTriggered = false
+	app.rateLimitMessage = ""
+	app.lowRowStreakCount = 0
+	app.queryTimestamps = nil
+}
+
 // GetState returns the current application state as a map.
 func (app *TrustedWebApp) GetState() map[string]any {
-	app.sessionLock.Lock()
+	app.mu.RLock()
+	defer app.mu.RUnlock()
 	session := app.CurrentSession
-	app.sessionLock.Unlock()
 
 	var sessionID, mode interface{}
 	if session != nil {
@@ -129,7 +211,7 @@ func (app *TrustedWebApp) GetState() map[string]any {
 	}
 
 	return map[string]any{
-		"version": app.stateVersion,
+		"version": app.stateVersion.Load(),
 		"theme":   app.ThemeName,
 		"connection": map[string]any{
 			"url":      app.ConnectedURL,
@@ -143,35 +225,49 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"query_state_text": app.QueryStateText,
 		"security_hint":    app.securityHint(),
 		"bridge_info":      fmt.Sprintf("Контроллер: %s:%d", DefaultBridgeHost, DefaultBridgePort),
-		"bridge_secret":    app.Bridge.BridgeSecret,
 		"result": map[string]any{
 			"headers":           app.ResultHeaders,
-			"rows":              app.ResultRows,
+			"row_count":         len(app.ResultRows),
 			"placeholder":       resultPlaceholder,
 			"placeholder_error": app.PlaceholderError,
 		},
 		"masked_result": map[string]any{
-			"headers":        app.MaskedResultHeaders,
-			"rows":           app.MaskedResultRows,
-			"masked_columns": app.MaskedColumns,
+			"headers":          app.MaskedResultHeaders,
+			"row_count":        len(app.MaskedResultRows),
+			"masked_columns":   app.MaskedColumns,
+			"unmasked_columns": app.UnmaskedColumns,
 		},
-		"bundle_text":         app.BundleText,
-		"analysis_masked":     app.AnalysisMasked,
-		"analysis_display":    app.AnalysisDisplay,
-		"query_preview":       app.QueryPreview,
-		"raw_response":        app.RawResponse,
-		"raw_state":           app.RawState,
-		"active_tab":          app.ActiveTab,
-		"query_running":       app.queryRunning,
-		"has_saved_settings":  app.HasSavedSettings,
-		"has_saved_token":     app.ConnectedToken != "",
-		"defaults_force_mask": app.Config.Defaults.ForceMaskFields,
+		"rows_truncated":       app.RowsTruncated,
+		"max_rows":             app.MaxRows,
+		"total_row_count":      app.TotalRowCount,
+		"bundle_text":          app.BundleText,
+		"analysis_masked":      app.AnalysisMasked,
+		"analysis_display":     app.AnalysisDisplay,
+		"query_preview":        app.QueryPreview,
+		"raw_response":         app.RawResponse,
+		"raw_state":            app.RawState,
+		"active_tab":           app.ActiveTab,
+		"query_running":        app.queryRunning,
+		"has_saved_settings":   app.HasSavedSettings,
+		"has_saved_token":      app.ConnectedToken != "",
+		"defaults_force_mask":  app.Config.Defaults.ForceMaskFields,
 		"defaults_allow_plain": app.Config.Defaults.AllowPlainFields,
+		"excluded_fields":        app.ExcludedFields,
+		"persistent_allow_plain": app.PersistentAllowPlain,
+		"persistent_force_mask":  app.PersistentForceMask,
+		"auto_send_to_agent":   app.AutoSendToAgent,
+		"approval_pending":     false,
+		"data_version":         app.dataVersion,
+		"query_version":        app.queryVersion,
+		"rate_limit_triggered": app.rateLimitTriggered,
+		"rate_limit_message":   app.rateLimitMessage,
 	}
 }
 
 // HandleConnect handles a connection attempt to the MCP server.
 func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	urlStr := strings.TrimSpace(getStringFieldDefault(data, "url", ""))
 	token := getStringFieldDefault(data, "token", "")
 	useSaved, _ := data["use_saved_token"].(bool)
@@ -227,6 +323,8 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 
 // HandleDisconnect clears the token and saved settings.
 func (app *TrustedWebApp) HandleDisconnect() map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	app.ConnectedToken = ""
 	app.ConnectionVerified = false
 	_ = DeleteSettings()
@@ -238,6 +336,8 @@ func (app *TrustedWebApp) HandleDisconnect() map[string]any {
 
 // HandleGetSettings returns current settings for the UI form.
 func (app *TrustedWebApp) HandleGetSettings() map[string]any {
+	app.mu.RLock()
+	defer app.mu.RUnlock()
 	saltDisplay := "(авто: из ключа сервера)"
 	if app.Config.Privacy.Salt != "" {
 		saltDisplay = "***"
@@ -250,17 +350,21 @@ func (app *TrustedWebApp) HandleGetSettings() map[string]any {
 		"privacy_salt":                saltDisplay,
 		"privacy_salt_env":            app.Config.Privacy.SaltEnv,
 		"privacy_alias_length":        app.Config.Privacy.AliasLength,
+		"privacy_numeric_threshold":   app.Config.Privacy.NumericThreshold,
 		"privacy_show_masked":         app.Config.Privacy.ShowMaskedDataInViewer,
 		"defaults_preview_chars":      app.Config.Defaults.ResultPreviewChars,
 		"defaults_auto_execute":       app.Config.Defaults.ExecuteWithoutConfirmation,
 		"defaults_force_mask_fields":  app.Config.Defaults.ForceMaskFields,
 		"defaults_allow_plain_fields": app.Config.Defaults.AllowPlainFields,
 		"has_saved_settings":          app.HasSavedSettings,
+		"allow_plain_keywords":        AllowPlainKeywordsCSV(),
 	}
 }
 
 // HandleSaveSettings persists settings to encrypted storage and reloads runtime.
 func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	mcpURL := strings.TrimSpace(getStringFieldDefault(data, "mcp_url", ""))
 	if mcpURL == "" {
 		mcpURL = app.ConnectedURL
@@ -285,6 +389,7 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 			"salt":                       actualSalt,
 			"salt_env":                   getStringFieldDefault(data, "privacy_salt_env", ""),
 			"alias_length":               getIntField(data, "privacy_alias_length", 10),
+			"numeric_threshold":          getIntField(data, "privacy_numeric_threshold", 10),
 			"show_masked_data_in_viewer": getBoolField(data, "privacy_show_masked"),
 		},
 		"defaults": map[string]any{
@@ -319,6 +424,8 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 
 // HandleResetSettings deletes encrypted storage and reverts to defaults.
 func (app *TrustedWebApp) HandleResetSettings() map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	_ = DeleteSettings()
 	app.HasSavedSettings = false
 	newConfig := ConfigFromDict(map[string]any{})
@@ -334,6 +441,8 @@ func (app *TrustedWebApp) HandleResetSettings() map[string]any {
 
 // HandleImportSettings imports settings from a config.json-style dict.
 func (app *TrustedWebApp) HandleImportSettings(data map[string]any) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	settings := sanitizeImport(data)
 	token := ""
 	if authMap, ok := settings["auth"].(map[string]any); ok {
@@ -364,17 +473,138 @@ func (app *TrustedWebApp) HandleQuery(data map[string]any) map[string]any {
 	mode := strings.ToLower(strings.TrimSpace(getStringFieldDefault(data, "mode", "direct")))
 	forceMask := getStringFieldDefault(data, "force_mask_fields", "")
 	allowPlain := getStringFieldDefault(data, "allow_plain_fields", "")
+	app.mu.Lock()
 	app.ForceMaskFields = forceMask
 	app.AllowPlainFields = allowPlain
-	return app.bridgeRunQuery(task, queryText, mode)
+	app.mu.Unlock()
+	return app.bridgeRunQuery(task, queryText, mode, false)
+}
+
+// HandleSetWhitelist sets the persistent allow/force-mask lists (from UI textarea) and remasks current session.
+func (app *TrustedWebApp) HandleSetWhitelist(forceMask, allowPlain string) map[string]any {
+	app.mu.Lock()
+	app.PersistentForceMask = forceMask
+	app.PersistentAllowPlain = allowPlain
+	app.notify()
+
+	session := app.CurrentSession
+	if session == nil {
+		app.mu.Unlock()
+		return map[string]any{"ok": true}
+	}
+	app.remaskLocked(session)
+	app.mu.Unlock()
+	return map[string]any{"ok": true}
+}
+
+// HandleRemask re-applies masking to the current session's data without re-querying the MCP server.
+func (app *TrustedWebApp) HandleRemask(forceMask, allowPlain string) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	session := app.CurrentSession
+	if session == nil {
+		return map[string]any{"ok": false, "error": "Нет активной сессии."}
+	}
+	if session.Mode != "masked" {
+		return map[string]any{"ok": false, "error": "Ремаскировка доступна только в masked-режиме."}
+	}
+	if len(session.DisplayRows) == 0 {
+		return map[string]any{"ok": false, "error": "Нет данных для ремаскировки."}
+	}
+
+	// Update session-level mask fields
+	app.ForceMaskFields = forceMask
+	app.AllowPlainFields = allowPlain
+
+	app.remaskLocked(session)
+
+	return map[string]any{
+		"ok":               true,
+		"masked_columns":   session.MaskedColumns,
+		"unmasked_columns": session.UnmaskedColumns,
+	}
+}
+
+// HandleExcludeFields updates excluded fields and re-masks. Excluded columns are stripped before masking.
+func (app *TrustedWebApp) HandleExcludeFields(excluded string) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	session := app.CurrentSession
+	if session == nil {
+		return map[string]any{"ok": false, "error": "Нет активной сессии."}
+	}
+	if session.Mode != "masked" {
+		return map[string]any{"ok": false, "error": "Исключение полей доступно только в masked-режиме."}
+	}
+	if len(session.DisplayRows) == 0 {
+		return map[string]any{"ok": false, "error": "Нет данных."}
+	}
+
+	app.ExcludedFields = excluded
+	app.remaskLocked(session)
+
+	return map[string]any{
+		"ok":               true,
+		"excluded_fields":  app.ExcludedFields,
+		"masked_columns":   session.MaskedColumns,
+		"unmasked_columns": session.UnmaskedColumns,
+	}
+}
+
+// remaskLocked re-sanitizes session data with current mask/allow/exclude settings.
+// Caller must hold app.mu (write lock).
+func (app *TrustedWebApp) remaskLocked(session *TrustedSession) {
+	// Strip excluded columns from display rows before masking
+	rows := app.filterExcludedColumns(session.DisplayRows)
+
+	sanitizer := app.Runtime.runtimeSanitizer(app.ConnectedToken)
+	sanitized := sanitizer.SanitizeRows(rows, app.mergedForceMask(), app.mergedAllowPlain())
+
+	session.MaskedRows = sanitized.MaskedRows
+	session.MaskedColumns = sanitized.MaskedColumns
+	session.UnmaskedColumns = sanitized.UnmaskedColumns
+	session.AliasToOriginal = sanitized.AliasToOriginal
+	session.cachedBundle = "" // invalidate cached bundle
+
+	app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
+	app.BundleText = MaskedBundle(session)
+	app.ActiveTab = "result"
+	app.StatusText = "Маскировка обновлена. Bundle пересобран."
+	app.notify()
+}
+
+// filterExcludedColumns returns a copy of rows with excluded columns removed.
+func (app *TrustedWebApp) filterExcludedColumns(rows []map[string]any) []map[string]any {
+	excluded := csvFields(app.ExcludedFields)
+	if len(excluded) == 0 {
+		return rows
+	}
+	// Normalize excluded field names for comparison
+	normalizedExcluded := make(map[string]bool, len(excluded))
+	for f := range excluded {
+		normalizedExcluded[strings.ToLower(strings.TrimSpace(f))] = true
+	}
+	filtered := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		newRow := make(map[string]any, len(row))
+		for k, v := range row {
+			if !normalizedExcluded[strings.ToLower(strings.TrimSpace(k))] {
+				newRow[k] = v
+			}
+		}
+		filtered = append(filtered, newRow)
+	}
+	return filtered
 }
 
 // ── Bridge callbacks ────────────────────────────────────────────
 
 func (app *TrustedWebApp) bridgeStatus() map[string]any {
-	app.sessionLock.Lock()
+	app.mu.RLock()
+	defer app.mu.RUnlock()
 	session := app.CurrentSession
-	app.sessionLock.Unlock()
 
 	result := map[string]any{
 		"ready":            app.ConnectionVerified && app.ConnectedURL != "",
@@ -389,11 +619,32 @@ func (app *TrustedWebApp) bridgeStatus() map[string]any {
 	return result
 }
 
-func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[string]any {
+func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridge bool) map[string]any {
 	if mode != "direct" && mode != "masked" {
 		return map[string]any{"ok": false, "error": "mode must be direct or masked"}
 	}
-	if !app.ConnectionVerified || app.ConnectedURL == "" {
+
+	// Rate limit check for bridge (agent) requests
+	if fromBridge {
+		app.mu.Lock()
+		blocked := app.checkBridgeRateLimit()
+		app.mu.Unlock()
+		if blocked {
+			return map[string]any{
+				"ok":      false,
+				"error":   "rate_limit",
+				"message": "Слишком частые запросы. Авто-режим отключён. Работайте в ручном режиме.",
+			}
+		}
+	}
+
+	app.mu.RLock()
+	verified := app.ConnectionVerified
+	connURL := app.ConnectedURL
+	connToken := app.ConnectedToken
+	app.mu.RUnlock()
+
+	if !verified || connURL == "" {
 		return map[string]any{"ok": false, "error": "Сначала введите ключ и нажмите 'Подключиться'."}
 	}
 	if queryText == "" {
@@ -402,6 +653,15 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 
 	if task == "" {
 		task = "Задача без названия"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+
+	app.mu.Lock()
+	// For bridge queries, reset session-level mask overrides so remask clicks from previous query don't leak
+	if fromBridge {
+		app.ForceMaskFields = ""
+		app.AllowPlainFields = ""
 	}
 	app.TaskText = task
 	app.QueryPreview = queryText
@@ -416,11 +676,14 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
-
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+	app.UnmaskedColumns = nil
 	app.queryCancel = cancel
 	app.queryRunning = true
+	forceMask := app.mergedForceMask()
+	allowPlain := app.mergedAllowPlain()
+	runtime := app.Runtime
 	app.notify()
+	app.mu.Unlock()
 
 	type queryResult struct {
 		session *TrustedSession
@@ -428,15 +691,15 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	}
 	ch := make(chan queryResult, 1)
 	go func() {
-		s, e := app.Runtime.ExecuteQuery(
+		s, e := runtime.ExecuteQuery(
 			ctx,
-			app.ConnectedURL,
-			app.ConnectedToken,
+			connURL,
+			connToken,
 			task,
 			queryText,
 			mode,
-			app.mergedForceMask(),
-			app.mergedAllowPlain(),
+			forceMask,
+			allowPlain,
 		)
 		ch <- queryResult{session: s, err: e}
 	}()
@@ -445,8 +708,11 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	// Save ctx state BEFORE calling cancel(), otherwise ctx.Err() always returns Canceled
 	ctxErr := ctx.Err()
 	cancel()
+
+	app.mu.Lock()
 	app.queryCancel = nil
 	app.queryRunning = false
+	app.mu.Unlock()
 
 	if res.err != nil {
 		errMsg := res.err.Error()
@@ -468,6 +734,13 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	session := res.session
 	app.onSessionReady(session)
 
+	// Track low-row results for brute-force detection (bridge only)
+	if fromBridge {
+		app.mu.Lock()
+		app.recordLowRowResult(len(session.MaskedRows))
+		app.mu.Unlock()
+	}
+
 	if session.ResultIsEmpty {
 		response := map[string]any{
 			"ok":         false,
@@ -485,13 +758,54 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	}
 
 	if mode == "masked" {
+		if fromBridge {
+			app.mu.RLock()
+			autoSend := app.AutoSendToAgent
+			app.mu.RUnlock()
+
+			if autoSend {
+				// Auto-send mode: return masked bundle immediately
+				app.mu.RLock()
+				bundleText := app.BundleText
+				app.mu.RUnlock()
+				if bundleText == "" {
+					bundleText = MaskedBundle(session)
+				}
+				return map[string]any{
+					"ok":            true,
+					"session_id":    session.SessionID,
+					"mode":          mode,
+					"task":          task,
+					"row_count":     len(session.MaskedRows),
+					"masked_bundle": bundleText,
+				}
+			}
+			// Manual mode: data is displayed in UI, user will review/filter
+			// and click "Отправить агенту". Agent should poll via pull_note.
+			return map[string]any{
+				"ok":         true,
+				"session_id": session.SessionID,
+				"mode":       mode,
+				"task":       task,
+				"row_count":  len(session.MaskedRows),
+				"status":     "awaiting_approval",
+				"message":    "Данные показаны в интерфейсе. Пользователь решит, что отправить. Используйте pull_note для получения данных после одобрения.",
+			}
+		}
+		// UI query — just return bundle for display
+		app.mu.RLock()
+		bundleText := app.BundleText
+		app.mu.RUnlock()
+		if bundleText == "" {
+			bundleText = MaskedBundle(session)
+		}
 		return map[string]any{
 			"ok":            true,
 			"session_id":    session.SessionID,
 			"mode":          mode,
 			"task":          task,
 			"row_count":     len(session.MaskedRows),
-			"masked_bundle": MaskedBundle(session),
+			"masked_bundle": bundleText,
 		}
 	}
 	return map[string]any{
@@ -503,10 +817,11 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string) map[strin
 	}
 }
 
+
 func (app *TrustedWebApp) bridgeApplyAnalysis(sessionID *string, analysisText string) map[string]any {
-	app.sessionLock.Lock()
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	session := app.CurrentSession
-	app.sessionLock.Unlock()
 
 	if session == nil || session.Mode != "masked" {
 		return map[string]any{"ok": false, "error": "Нет активной masked-сессии."}
@@ -532,11 +847,15 @@ func (app *TrustedWebApp) bridgeApplyAnalysis(sessionID *string, analysisText st
 }
 
 func (app *TrustedWebApp) bridgeClearSession() map[string]any {
-	app.clearSession()
+	app.mu.Lock()
+	app.clearSessionLocked()
+	app.mu.Unlock()
 	return map[string]any{"ok": true, "status": "cleared"}
 }
 
 func (app *TrustedWebApp) bridgePullNote(clearAfterRead bool) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	note := app.PendingAgentNote
 	if note == nil {
 		return map[string]any{"ok": true, "has_note": false}
@@ -554,25 +873,38 @@ func (app *TrustedWebApp) bridgePullNote(clearAfterRead bool) map[string]any {
 
 // ── Internal ────────────────────────────────────────────────────
 
+// onSessionReady updates app state with a completed session. Takes its own lock.
 func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
-	app.sessionLock.Lock()
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	app.CurrentSession = session
-	app.sessionLock.Unlock()
 
 	app.TaskText = session.Task
 	if app.TaskText == "" {
 		app.TaskText = "Задача без названия"
 	}
 	app.extractRows(session.DisplayRows)
-	app.extractMaskedRows(session.MaskedRows, session.MaskedColumns)
+	app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
+	app.queryVersion++
 	app.QueryPreview = session.QueryText
 	app.RawResponse = session.RawResultPreview
 	app.AnalysisMasked = ""
 	app.AnalysisDisplay = ""
 
+	// Propagate truncation info from diagnostic
+	if trunc, ok := session.Diagnostic["rows_truncated"].(bool); ok {
+		app.RowsTruncated = trunc
+	}
+	if mx, ok := session.Diagnostic["max_rows"].(int); ok {
+		app.MaxRows = mx
+	}
+	if total, ok := session.Diagnostic["total_parsed_rows"].(int); ok {
+		app.TotalRowCount = total
+	}
+
 	if session.Mode == "masked" {
 		app.BundleText = MaskedBundle(session)
-		app.ActiveTab = "bundle"
+		app.ActiveTab = "result"
 	} else {
 		app.BundleText = ""
 		app.ActiveTab = "result"
@@ -599,6 +931,8 @@ func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
 }
 
 func (app *TrustedWebApp) onQueryFailed(task, mode, message string) {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	if task == "" {
 		task = "Задача без названия"
 	}
@@ -608,6 +942,7 @@ func (app *TrustedWebApp) onQueryFailed(task, mode, message string) {
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
+	app.UnmaskedColumns = nil
 	app.BundleText = ""
 	app.AnalysisMasked = ""
 	app.AnalysisDisplay = ""
@@ -626,19 +961,19 @@ func (app *TrustedWebApp) onQueryFailed(task, mode, message string) {
 	app.notify()
 }
 
-func (app *TrustedWebApp) clearSession() {
-	app.sessionLock.Lock()
+// clearSessionLocked clears the current session. Caller must hold app.mu (write lock).
+func (app *TrustedWebApp) clearSessionLocked() {
 	if app.CurrentSession != nil {
 		app.CurrentSession.ClearSensitive()
 	}
 	app.CurrentSession = nil
-	app.sessionLock.Unlock()
 
 	app.ResultRows = nil
 	app.ResultHeaders = nil
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
+	app.UnmaskedColumns = nil
 	app.BundleText = ""
 	app.AnalysisMasked = ""
 	app.AnalysisDisplay = ""
@@ -646,17 +981,24 @@ func (app *TrustedWebApp) clearSession() {
 	app.RawResponse = ""
 	app.RawState = "neutral"
 	app.PendingAgentNote = nil
+	app.ExcludedFields = ""
+	app.resetRateLimit()
 	app.TaskText = "Ожидаю задачу от контроллера"
 	app.StatusText = "Сессия очищена из памяти."
 	app.QueryState = "idle"
 	app.QueryStateText = "Ожидание"
 	app.PlaceholderText = "Результат появится здесь после выполнения запроса."
 	app.PlaceholderError = false
+	app.RowsTruncated = false
+	app.MaxRows = 0
+	app.TotalRowCount = 0
 	app.ActiveTab = "result"
 	app.notify()
 }
 
 func (app *TrustedWebApp) handleCancelQuery() map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
 	if app.queryCancel != nil {
 		app.queryCancel()
 		app.queryCancel = nil
@@ -677,10 +1019,44 @@ func (app *TrustedWebApp) extractRows(rows []map[string]any) {
 	app.ResultHeaders = extractHeadersFromRows(rows)
 }
 
-func (app *TrustedWebApp) extractMaskedRows(rows []map[string]any, maskedCols []string) {
+func (app *TrustedWebApp) extractMaskedRows(rows []map[string]any, maskedCols, unmaskedCols []string) {
 	app.MaskedResultRows = rows
 	app.MaskedColumns = maskedCols
+	app.UnmaskedColumns = unmaskedCols
 	app.MaskedResultHeaders = extractHeadersFromRows(rows)
+	app.dataVersion++
+}
+
+// applyFilteredBundle regenerates the session bundle using only the rows at the given indices.
+func (app *TrustedWebApp) applyFilteredBundle(rawIndices []any) {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	session := app.CurrentSession
+	if session == nil {
+		return
+	}
+	indices := make([]int, 0, len(rawIndices))
+	for _, v := range rawIndices {
+		if f, ok := v.(float64); ok {
+			idx := int(f)
+			if idx >= 0 && idx < len(session.MaskedRows) {
+				indices = append(indices, idx)
+			}
+		}
+	}
+	if len(indices) == 0 || len(indices) == len(session.MaskedRows) {
+		return // no filtering needed
+	}
+	filteredMasked := make([]map[string]any, len(indices))
+	for i, idx := range indices {
+		filteredMasked[i] = session.MaskedRows[idx]
+	}
+	// Temporarily swap masked rows to regenerate bundle, then restore
+	origMasked := session.MaskedRows
+	session.MaskedRows = filteredMasked
+	session.cachedBundle = "" // invalidate cache
+	app.BundleText = MaskedBundle(session)
+	session.MaskedRows = origMasked
 }
 
 func extractHeadersFromRows(rows []map[string]any) []string {
@@ -724,6 +1100,9 @@ func csvFields(raw string) map[string]bool {
 
 func (app *TrustedWebApp) mergedForceMask() map[string]bool {
 	combined := csvFields(app.Config.Defaults.ForceMaskFields)
+	for k := range csvFields(app.PersistentForceMask) {
+		combined[k] = true
+	}
 	for k := range csvFields(app.ForceMaskFields) {
 		combined[k] = true
 	}
@@ -731,11 +1110,18 @@ func (app *TrustedWebApp) mergedForceMask() map[string]bool {
 	for k := range sessionAllow {
 		delete(combined, k)
 	}
+	persistAllow := csvFields(app.PersistentAllowPlain)
+	for k := range persistAllow {
+		delete(combined, k)
+	}
 	return combined
 }
 
 func (app *TrustedWebApp) mergedAllowPlain() map[string]bool {
 	combined := csvFields(app.Config.Defaults.AllowPlainFields)
+	for k := range csvFields(app.PersistentAllowPlain) {
+		combined[k] = true
+	}
 	for k := range csvFields(app.AllowPlainFields) {
 		combined[k] = true
 	}
@@ -744,9 +1130,11 @@ func (app *TrustedWebApp) mergedAllowPlain() map[string]bool {
 
 // Shutdown cleans up all resources.
 func (app *TrustedWebApp) Shutdown() {
-	app.clearSession()
+	app.mu.Lock()
+	app.clearSessionLocked()
 	app.ConnectedToken = ""
 	app.ConnectionVerified = false
+	app.mu.Unlock()
 	app.Bridge.Stop()
 }
 
@@ -765,6 +1153,7 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/", ws.handleRoot)
 	mux.HandleFunc("/favicon.ico", ws.handleFavicon)
 	mux.HandleFunc("/api/state", ws.handleAPIState)
+	mux.HandleFunc("/api/rows", ws.handleAPIRows)
 	mux.HandleFunc("/api/events", ws.handleAPIEvents)
 	mux.HandleFunc("/api/settings", ws.handleAPISettings)
 	mux.HandleFunc("/api/connect", ws.handleAPIConnect)
@@ -778,6 +1167,12 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/api/theme", ws.handleAPITheme)
 	mux.HandleFunc("/api/settings/reset", ws.handleAPISettingsReset)
 	mux.HandleFunc("/api/settings/import", ws.handleAPISettingsImport)
+	mux.HandleFunc("/api/bridge_secret", ws.handleAPIBridgeSecret)
+	mux.HandleFunc("/api/remask", ws.handleAPIRemask)
+	mux.HandleFunc("/api/set_whitelist", ws.handleAPISetWhitelist)
+	mux.HandleFunc("/api/exclude_fields", ws.handleAPIExcludeFields)
+	mux.HandleFunc("/api/approve_send", ws.handleAPIApproveSend)
+	mux.HandleFunc("/api/auto_send", ws.handleAPIAutoSend)
 
 	ws.server = &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", host, port),
@@ -866,6 +1261,54 @@ func (ws *WebHTTPServer) handleAPIState(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, 200, ws.App.GetState())
 }
 
+func (ws *WebHTTPServer) handleAPIRows(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	q := r.URL.Query()
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	app := ws.App
+	app.mu.RLock()
+	resultSlice := safeSlice(app.ResultRows, offset, limit)
+	maskedSlice := safeSlice(app.MaskedResultRows, offset, limit)
+	result := map[string]any{
+		"offset":         offset,
+		"limit":          limit,
+		"total":          len(app.ResultRows),
+		"rows":           resultSlice,
+		"masked_rows":    maskedSlice,
+		"headers":        app.ResultHeaders,
+		"masked_headers": app.MaskedResultHeaders,
+		"masked_columns":   app.MaskedColumns,
+		"unmasked_columns": app.UnmaskedColumns,
+	}
+	app.mu.RUnlock()
+	respondJSON(w, 200, result)
+}
+
+func safeSlice(rows []map[string]any, offset, limit int) []map[string]any {
+	if rows == nil {
+		return []map[string]any{}
+	}
+	if offset >= len(rows) {
+		return []map[string]any{}
+	}
+	end := offset + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	return rows[offset:end]
+}
+
 func (ws *WebHTTPServer) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 	if !ws.checkToken(r) {
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
@@ -883,7 +1326,7 @@ func (ws *WebHTTPServer) handleAPIEvents(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(200)
 	flusher.Flush()
 
-	lastVersion := 0
+	var lastVersion int64
 	ctx := r.Context()
 
 	for {
@@ -895,7 +1338,7 @@ func (ws *WebHTTPServer) handleAPIEvents(w http.ResponseWriter, r *http.Request)
 
 		ws.App.waitForChange(15 * time.Second)
 
-		current := ws.App.stateVersion
+		current := ws.App.stateVersion.Load()
 		if current != lastVersion {
 			lastVersion = current
 			fmt.Fprintf(w, "data: {\"version\": %d}\n\n", current)
@@ -1012,10 +1455,8 @@ func (ws *WebHTTPServer) handleAPISubmitNote(w http.ResponseWriter, r *http.Requ
 		respondJSON(w, 200, map[string]any{"ok": false, "error": "Message is empty."})
 		return
 	}
-	ws.App.sessionLock.Lock()
+	ws.App.mu.Lock()
 	session := ws.App.CurrentSession
-	ws.App.sessionLock.Unlock()
-
 	sessionID := ""
 	if session != nil {
 		sessionID = session.SessionID
@@ -1027,6 +1468,7 @@ func (ws *WebHTTPServer) handleAPISubmitNote(w http.ResponseWriter, r *http.Requ
 	}
 	ws.App.StatusText = "Сообщение для агента сохранено в мосте."
 	ws.App.notify()
+	ws.App.mu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1035,8 +1477,10 @@ func (ws *WebHTTPServer) handleAPIClearNote(w http.ResponseWriter, r *http.Reque
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
 		return
 	}
+	ws.App.mu.Lock()
 	ws.App.PendingAgentNote = nil
 	ws.App.notify()
+	ws.App.mu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1054,8 +1498,10 @@ func (ws *WebHTTPServer) handleAPITheme(w http.ResponseWriter, r *http.Request) 
 	if theme != "dark" {
 		theme = "light"
 	}
+	ws.App.mu.Lock()
 	ws.App.ThemeName = theme
 	ws.App.notify()
+	ws.App.mu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1078,6 +1524,120 @@ func (ws *WebHTTPServer) handleAPISettingsImport(w http.ResponseWriter, r *http.
 		return
 	}
 	respondJSON(w, 200, ws.App.HandleImportSettings(data))
+}
+
+func (ws *WebHTTPServer) handleAPIRemask(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	forceMask := getStringFieldDefault(data, "force_mask_fields", "")
+	allowPlain := getStringFieldDefault(data, "allow_plain_fields", "")
+	respondJSON(w, 200, ws.App.HandleRemask(forceMask, allowPlain))
+}
+
+func (ws *WebHTTPServer) handleAPISetWhitelist(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	allowPlain := getStringFieldDefault(data, "allow_plain_fields", "")
+	forceMask := getStringFieldDefault(data, "force_mask_fields", "")
+	respondJSON(w, 200, ws.App.HandleSetWhitelist(forceMask, allowPlain))
+}
+
+func (ws *WebHTTPServer) handleAPIExcludeFields(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	excluded := getStringFieldDefault(data, "excluded_fields", "")
+	respondJSON(w, 200, ws.App.HandleExcludeFields(excluded))
+}
+
+func (ws *WebHTTPServer) handleAPIBridgeSecret(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJSON(w, 200, map[string]any{"bridge_secret": ws.App.Bridge.BridgeSecret})
+}
+
+func (ws *WebHTTPServer) handleAPIApproveSend(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, _ := ws.readJSON(r)
+
+	// Apply filtered indices if provided (user filtered rows in Result tab)
+	if data != nil {
+		if rawIndices, ok := data["filtered_indices"].([]any); ok && len(rawIndices) > 0 {
+			ws.App.applyFilteredBundle(rawIndices)
+		}
+	}
+
+	// Store the current bundle in PendingAgentNote for pull_note retrieval
+	ws.App.mu.Lock()
+	session := ws.App.CurrentSession
+	bundleText := ws.App.BundleText
+	sessionID := ""
+	task := ws.App.TaskText
+	if session != nil {
+		sessionID = session.SessionID
+		if bundleText == "" {
+			bundleText = MaskedBundle(session)
+		}
+	}
+	ws.App.PendingAgentNote = map[string]string{
+		"message":    bundleText,
+		"session_id": sessionID,
+		"task":       task,
+	}
+	ws.App.QueryState = "success"
+	ws.App.QueryStateText = "Отправлено"
+	ws.App.StatusText = "Данные готовы для агента. Агент может забрать через pull_note."
+	ws.App.notify()
+	ws.App.mu.Unlock()
+
+	respondJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (ws *WebHTTPServer) handleAPIAutoSend(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	enabled, _ := data["enabled"].(bool)
+	ws.App.mu.Lock()
+	ws.App.AutoSendToAgent = enabled
+	if enabled {
+		// User consciously re-enables auto mode — reset brute-force counters
+		ws.App.resetRateLimit()
+	}
+	ws.App.notify()
+	ws.App.mu.Unlock()
+	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -1151,7 +1711,7 @@ var importWhitelist = map[string]map[string]bool{
 	},
 	"privacy": {
 		"salt": true, "salt_env": true, "alias_length": true,
-		"show_masked_data_in_viewer": true,
+		"numeric_threshold": true, "show_masked_data_in_viewer": true,
 	},
 	"defaults": {
 		"result_preview_chars": true, "execute_without_confirmation": true,

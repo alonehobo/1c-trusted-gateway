@@ -20,6 +20,7 @@ type PrivacyConfig struct {
 	Salt                   string `json:"salt,omitempty"`
 	SaltEnv                string `json:"salt_env,omitempty"`
 	AliasLength            int    `json:"alias_length,omitempty"`
+	NumericThreshold       int    `json:"numeric_threshold,omitempty"` // kept for config compat, unused
 	ShowMaskedDataInViewer bool   `json:"show_masked_data_in_viewer,omitempty"`
 }
 
@@ -113,6 +114,9 @@ func applyConfigDefaults(cfg *AppConfig) {
 	}
 	if cfg.Privacy.AliasLength <= 0 {
 		cfg.Privacy.AliasLength = 10
+	}
+	if cfg.Privacy.NumericThreshold <= 0 {
+		cfg.Privacy.NumericThreshold = 10
 	}
 	if cfg.Defaults.ResultPreviewChars <= 0 {
 		cfg.Defaults.ResultPreviewChars = 4000

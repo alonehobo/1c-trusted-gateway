@@ -90,7 +90,7 @@ func (c *McpClient) Initialize(ctx context.Context) error {
 	_ = resp // We just need the session ID from headers, already captured
 
 	// Send initialized notification
-	return c.sendNotification("notifications/initialized", nil)
+	return c.sendNotification(ctx, "notifications/initialized", nil)
 }
 
 // ListTools returns the list of available tool names.
@@ -282,7 +282,7 @@ func (c *McpClient) readSSEResponse(reader io.Reader) (map[string]any, error) {
 	return result, nil
 }
 
-func (c *McpClient) sendNotification(method string, params map[string]any) error {
+func (c *McpClient) sendNotification(ctx context.Context, method string, params map[string]any) error {
 	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -296,7 +296,7 @@ func (c *McpClient) sendNotification(method string, params map[string]any) error
 		return err
 	}
 
-	req, err := http.NewRequest("POST", c.URL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.URL, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -313,6 +313,10 @@ func (c *McpClient) sendNotification(method string, params map[string]any) error
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("notification %s failed with status %d", method, resp.StatusCode)
+	}
 
 	// Capture session ID
 	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {

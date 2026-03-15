@@ -20,12 +20,14 @@ type TrustedSession struct {
 	DisplayRows      []map[string]any  `json:"display_rows"`
 	MaskedRows       []map[string]any  `json:"masked_rows"`
 	MaskedColumns    []string          `json:"masked_columns"`
+	UnmaskedColumns  []string          `json:"unmasked_columns"`
 	AliasToOriginal  map[string]string `json:"alias_to_original"`
 	RawResultPreview string            `json:"raw_result_preview"`
 	ResultIsEmpty    bool              `json:"result_is_empty"`
 	Diagnostic       map[string]any    `json:"diagnostic"`
 	AnalysisMasked   string            `json:"analysis_masked"`
 	AnalysisDisplay  string            `json:"analysis_display"`
+	cachedBundle     string            // cached MaskedBundle result
 }
 
 // NewTrustedSession creates a new session with a random ID.
@@ -66,6 +68,7 @@ func NewTrustedGatewayRuntime(config *AppConfig) *TrustedGatewayRuntime {
 }
 
 // TestConnection verifies connectivity to the MCP server and returns the tool list.
+// It also performs a lightweight tool call with the provided token to verify authentication.
 func (rt *TrustedGatewayRuntime) TestConnection(ctx context.Context, url, token string) ([]string, error) {
 	client := rt.buildMcpClient(url)
 	if err := client.Initialize(ctx); err != nil {
@@ -75,6 +78,23 @@ func (rt *TrustedGatewayRuntime) TestConnection(ctx context.Context, url, token 
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения списка инструментов: %v", err)
 	}
+
+	// Verify token by running a lightweight query
+	if token != "" {
+		args := map[string]any{
+			"Key":       token,
+			"QueryText": "ВЫБРАТЬ 1 КАК Проверка",
+			"param":     []any{},
+		}
+		result, err := client.CallNamedTool(ctx, "query", args)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка проверки ключа: %v", err)
+		}
+		if result.IsError || looksLike1CQueryError(result.Text) {
+			return nil, fmt.Errorf("Ключ не принят сервером: %s", result.Preview(200))
+		}
+	}
+
 	return tools, nil
 }
 
@@ -115,6 +135,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	rows := extractRows(result.Structured, result.Text)
 
 	const maxRows = 5000
+	totalParsedRows := len(rows)
 	rowsTruncated := false
 	if len(rows) > maxRows {
 		rows = rows[:maxRows]
@@ -128,12 +149,13 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	session.RawResultPreview = result.Preview(rt.Config.Defaults.ResultPreviewChars)
 	session.ResultIsEmpty = len(rows) == 0
 	session.Diagnostic = map[string]any{
-		"has_structured":   result.Structured != nil,
-		"has_text":         result.Text != "",
-		"text_length":      len(result.Text),
-		"parsed_row_count": len(rows),
-		"rows_truncated":   rowsTruncated,
-		"max_rows":         maxRows,
+		"has_structured":    result.Structured != nil,
+		"has_text":          result.Text != "",
+		"text_length":       len(result.Text),
+		"parsed_row_count":  len(rows),
+		"total_parsed_rows": totalParsedRows,
+		"rows_truncated":    rowsTruncated,
+		"max_rows":          maxRows,
 	}
 
 	if mode == "direct" {
@@ -147,6 +169,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	session.DisplayRows = sanitized.DisplayRows
 	session.MaskedRows = sanitized.MaskedRows
 	session.MaskedColumns = sanitized.MaskedColumns
+	session.UnmaskedColumns = sanitized.UnmaskedColumns
 	session.AliasToOriginal = sanitized.AliasToOriginal
 	return session, nil
 }
@@ -159,7 +182,11 @@ func (rt *TrustedGatewayRuntime) ApplyAnalysis(session *TrustedSession, analysis
 }
 
 // MaskedBundle returns the JSON bundle of masked data for the agent.
+// The result is cached after first computation.
 func MaskedBundle(session *TrustedSession) string {
+	if session.cachedBundle != "" {
+		return session.cachedBundle
+	}
 	payload := map[string]any{
 		"session_id":     session.SessionID,
 		"task":           session.Task,
@@ -173,7 +200,8 @@ func MaskedBundle(session *TrustedSession) string {
 	if err != nil {
 		return "{}"
 	}
-	return string(data)
+	session.cachedBundle = string(data)
+	return session.cachedBundle
 }
 
 func (rt *TrustedGatewayRuntime) buildMcpClient(url string) *McpClient {
@@ -199,7 +227,7 @@ func (rt *TrustedGatewayRuntime) runtimeSanitizer(token string) *DataSanitizer {
 		_, _ = rand.Read(b)
 		effectiveSalt = hex.EncodeToString(b)
 	}
-	return NewDataSanitizer(effectiveSalt, rt.Config.Privacy.AliasLength)
+	return NewDataSanitizer(effectiveSalt, rt.Config.Privacy.AliasLength, rt.Config.Privacy.NumericThreshold)
 }
 
 // looksLike1CQueryError checks if the response text looks like a 1C query error.
@@ -220,6 +248,8 @@ func looksLike1CQueryError(text string) bool {
 		"Поле не найдено",
 		"Синтаксическая ошибка",
 		"Неверные параметры",
+		"Передан неверный ключ",
+		"неверный ключ доступа",
 	}
 	for _, marker := range errorMarkers {
 		if strings.Contains(normalized, marker) {
@@ -228,6 +258,7 @@ func looksLike1CQueryError(text string) bool {
 	}
 	return strings.HasPrefix(normalized, "{(") && strings.Contains(normalized, ")}:")
 }
+
 
 // extractRows extracts row data from structured or text MCP response.
 func extractRows(structured any, rawText string) []map[string]any {

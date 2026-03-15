@@ -113,6 +113,21 @@ body {
   color: var(--text-primary);
 }
 .mask-input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.mask-input.has-value { border-color: var(--error); background: var(--error-soft); }
+.mask-info { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.unmasked-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+.unmasked-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); }
+.unmasked-tag:hover { }
+.masked-count-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--warning-soft); color: var(--warning); font-weight: 600; white-space: nowrap; }
+.masked-col-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--warning-soft); color: var(--warning); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); }
+.masked-col-tag:hover { }
+.excluded-col-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--error-soft); color: var(--error); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); text-decoration: line-through; }
+.excluded-col-tag:hover { opacity: 0.8; }
+.exclude-x { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--error-soft); color: var(--error); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); margin-left: -2px; }
+.exclude-x:hover { background: var(--error); color: #fff; }
+.field-legend { display: inline-flex; gap: 8px; margin-left: 12px; font-size: 10px; color: var(--text-tertiary); align-items: center; }
+.field-legend-item { display: inline-flex; align-items: center; gap: 3px; }
+.field-legend-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 
 /* Bridge secret in header */
 .bridge-label { font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; font-size: 10px; }
@@ -179,6 +194,8 @@ input::placeholder { color: var(--text-tertiary); }
 
 .btn-ghost { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); }
 .btn-ghost:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--input-border); }
+.btn-ghost.mode-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-ghost.mode-active:hover { background: var(--accent-hover); }
 
 .btn-icon { background: transparent; color: var(--text-tertiary); padding: 6px; border-radius: var(--radius-xs); }
 .btn-icon:hover { background: var(--surface-hover); color: var(--text-primary); }
@@ -225,6 +242,8 @@ input::placeholder { color: var(--text-tertiary); }
 .sb-warning .dot { background: var(--warning); }
 .sb-error { background: var(--error-soft); color: var(--error); }
 .sb-error .dot { background: var(--error); }
+.sb-approval { background: var(--accent-soft); color: var(--accent); }
+.sb-approval .dot { background: var(--accent); animation: pulse 1.5s infinite; }
 
 /* Meta pill */
 .meta-pill { font-size: 11px; color: var(--text-tertiary); padding: 3px 8px;
@@ -239,17 +258,33 @@ input::placeholder { color: var(--text-tertiary); }
 .tab-panel.active { display: flex; }
 
 /* ─── Result Table ─── */
-#result-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; }
+#result-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; flex-wrap: wrap; }
 #result-actions .search-wrap { position: relative; flex: 0 0 240px; }
-#result-actions .search-wrap input { width: 100%; padding-left: 30px; }
+#result-actions .search-wrap input { width: 100%; padding-left: 30px; padding-right: 24px; }
 #result-actions .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   color: var(--text-tertiary); font-size: 13px; pointer-events: none; }
+#result-actions .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-tertiary); font-size: 14px; display: none; line-height: 1; padding: 2px; }
+#result-actions .search-clear:hover { color: var(--text-primary); }
 .row-count { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+#filter-rows { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
+#filter-rows:empty { display: none; }
+.filter-row { display: flex; align-items: center; gap: 6px; }
+.filter-row select { font-size: 12px; padding: 3px 6px; }
+.filter-row input { font-size: 12px; padding: 3px 8px; width: 160px; }
+.filter-row .btn-remove { background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+  font-size: 15px; padding: 0 4px; line-height: 1; }
+.filter-row .btn-remove:hover { color: var(--error); }
 
 .table-wrap {
   flex: 1; min-height: 0; overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--bg-1);
+  position: relative;
+}
+.truncation-banner {
+  padding: 6px 12px; background: var(--warning-soft); color: var(--warning);
+  font-size: 11px; text-align: center; border-bottom: 1px solid var(--border);
+  display: none;
 }
 #result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #result-table thead { position: sticky; top: 0; z-index: 2; }
@@ -334,7 +369,7 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 .raw-border-error { border-color: var(--error); }
 
 /* ─── Section Header ─── */
-.section-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; }
+.section-header { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; }
 .section-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -461,21 +496,17 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
   <!-- ══════ Masking fields (session) ══════ -->
   <div id="mask-bar" class="panel mask-bar">
     <div class="mask-field">
-      <span class="mask-label">Шифровать (через запятую):</span>
-      <textarea id="force-mask" class="mask-input" rows="1" placeholder="Поля для обязательной маскировки в этой сессии..."></textarea>
+      <span class="mask-label">Белый список (не шифровать):</span>
+      <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не шифровать (через запятую)..." oninput="onAllowPlainInput()"></textarea>
     </div>
-    <div class="mask-field">
-      <span class="mask-label">Не шифровать:</span>
-      <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не маскировать..."></textarea>
-    </div>
+    <textarea id="force-mask" style="display:none"></textarea>
   </div>
 
   <!-- ══════ Toolbar ══════ -->
   <div id="toolbar" class="panel">
-    <button class="tab-btn active" onclick="showTab('result',this)">Результат</button>
-    <button class="tab-btn" onclick="showTab('bundle',this)">Данные для агента</button>
+    <button class="tab-btn active" onclick="showTab('raw',this)">MCP</button>
+    <button class="tab-btn" onclick="showTab('result',this)">Результат</button>
     <button class="tab-btn" onclick="showTab('analysis',this)">Анализ данных от агента</button>
-    <button class="tab-btn" onclick="showTab('raw',this)">MCP</button>
     <button class="tab-btn" onclick="showTab('settings',this)">&#9881; Настройки</button>
     <span id="task-text">Ожидаю задачу от контроллера</span>
     <span id="meta-session" class="meta-pill" style="display:none"></span>
@@ -486,18 +517,41 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
   <div id="content" class="panel">
 
     <!-- Tab: Result -->
-    <div id="tab-result" class="tab-panel active">
+    <div id="tab-result" class="tab-panel">
       <div id="result-actions">
         <div class="search-wrap">
           <span class="search-icon">&#128269;</span>
-          <input type="text" id="result-filter" placeholder="Поиск по таблице..." oninput="applyResultView()">
+          <input type="text" id="result-filter" placeholder="Поиск по всем полям..." oninput="onSearchInput()">
+          <span class="search-clear" id="search-clear" onclick="clearSearch()" title="Очистить поиск">✕</span>
         </div>
-        <select id="result-filter-col" onchange="applyResultView()"><option>Все поля</option></select>
+        <button class="btn btn-ghost btn-xs" onclick="addFilterRow()" title="Добавить фильтр по полю">+ Фильтр</button>
         <button class="btn btn-ghost btn-xs" onclick="clearFilter()">Сбросить</button>
         <span class="row-count" id="row-count"></span>
         <button class="btn btn-ghost btn-xs" onclick="copyAllRows()">Копировать все</button>
         <button class="btn btn-ghost btn-xs" onclick="copyCellSelection()">Выделение</button>
+        <span style="flex-grow:1"></span>
+        <span id="send-mode-wrap" style="display:flex; align-items:center; gap:6px; font-size:12px;">
+          <span style="color:var(--text-tertiary)">Режим:</span>
+          <button class="btn btn-ghost btn-xs" id="mode-auto-btn" onclick="setSendMode(true)" title="Агент получает данные сразу без предварительной проверки. Шифруется всё, кроме белого списка">Авто</button>
+          <button class="btn btn-ghost btn-xs" id="mode-manual-btn" onclick="setSendMode(false)" title="Данные отправляются агенту только после вашей проверки">Ручной</button>
+          <span id="rate-limit-warning" style="display:none; color:#ff6b6b; font-size:11px; font-weight:600; margin-left:4px;"></span>
+        </span>
+        <button class="btn btn-primary btn-xs" id="approve-send-btn" style="visibility:hidden" onclick="doApproveSend()">&#9654; Отправить агенту</button>
       </div>
+      <div id="filter-rows"></div>
+      <div id="unmasked-info-result" class="mask-info" style="display:none; padding:4px 8px;">
+        <span class="mask-label">Поля:</span>
+        <span id="unmasked-cols-result" class="unmasked-tags"></span>
+        <span class="field-legend">
+          <span class="field-legend-item"><span class="field-legend-dot" style="background:var(--success)"></span> разрешено</span>
+          <span class="field-legend-item"><span class="field-legend-dot" style="background:var(--warning)"></span> шифруется</span>
+        </span>
+      </div>
+      <div id="excluded-info-result" class="mask-info" style="display:none; padding:4px 8px;">
+        <span class="mask-label">Исключены:</span>
+        <span id="excluded-cols-result" class="unmasked-tags"></span>
+      </div>
+      <div class="truncation-banner" id="truncation-banner"></div>
       <div class="table-wrap" id="result-table-wrap">
         <table id="result-table"><thead><tr></tr></thead><tbody></tbody></table>
       </div>
@@ -506,36 +560,28 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <!-- masked data merged into main table -->
     </div>
 
-    <!-- Tab: Bundle -->
-    <div id="tab-bundle" class="tab-panel">
-      <div class="section-header">
-        <span class="section-title">Обезличенные данные для агента</span>
-        <button class="btn btn-ghost btn-xs" onclick="copyBundle()">Скопировать</button>
-      </div>
-      <div class="text-panel" id="bundle-text"></div>
-    </div>
+    <!-- Bundle tab removed — controls moved to Result tab -->
 
     <!-- Tab: Analysis -->
     <div id="tab-analysis" class="tab-panel">
       <div class="split-v">
         <div class="split-pane">
-          <div class="pane-header">Анализ от агента (aliases)</div>
+          <div class="pane-header">Анализ от агента (aliases) <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('masked')">Копировать</button></div>
           <div class="text-panel" id="analysis-masked"></div>
         </div>
         <div class="split-pane">
-          <div class="pane-header">Расшифрованный анализ</div>
+          <div class="pane-header">Расшифрованный анализ <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('display')">Копировать</button></div>
           <div class="text-panel" id="analysis-display"></div>
         </div>
       </div>
     </div>
 
     <!-- Tab: Raw (MCP) -->
-    <div id="tab-raw" class="tab-panel">
+    <div id="tab-raw" class="tab-panel active">
       <div class="query-bar">
         <textarea id="query-input" rows="3" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
         <div class="query-actions">
-          <button class="btn btn-primary" onclick="doQuery('direct')" id="btn-query-direct" title="Выполнить запрос, результат отображается только в этом окне">&#9654; Выполнить</button>
-          <button class="btn btn-ghost btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить с маскировкой — для передачи агенту">&#128274; Masked</button>
+          <button class="btn btn-primary" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос с маскировкой данных">&#9654; Выполнить</button>
           <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
         </div>
       </div>
@@ -573,16 +619,17 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
           </fieldset>
 
           <fieldset class="settings-section">
-            <legend>Маскирование полей (по умолчанию)</legend>
+            <legend>Маскирование полей</legend>
+            <span class="settings-hint" style="margin-bottom:6px;display:block">Политика: <b>все поля шифруются по умолчанию</b>. Только перечисленные ниже поля и поля, содержащие ключевые слова (<span id="s-keywords-hint"></span>), передаются открыто.</span>
             <label class="settings-field">
-              <span class="settings-label">Всегда шифровать (через запятую)</span>
-              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые всегда маскировать (например: ФИО, Телефон, Email)"></textarea>
-              <span class="settings-hint">Эти поля будут подставлены в сессию автоматически при каждом запуске.</span>
+              <span class="settings-label">Не шифровать (через запятую)</span>
+              <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
+              <span class="settings-hint">Эти поля будут передаваться агенту открыто.</span>
             </label>
             <label class="settings-field">
-              <span class="settings-label">Никогда не шифровать (через запятую)</span>
-              <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
-              <span class="settings-hint">Эти поля будут явно разрешены для передачи без маскировки.</span>
+              <span class="settings-label">Шифровать принудительно (через запятую)</span>
+              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля для принудительной маскировки (даже если совпадают с allow-list)"></textarea>
+              <span class="settings-hint">Эти поля будут зашифрованы, даже если попадают в allow-list.</span>
             </label>
           </fieldset>
 
@@ -638,8 +685,26 @@ let resultHeaders = [];
 let maskedRows = [];
 let maskedHeaders = [];
 let maskedColumns = [];
+let tagAllowSet = new Set();   // fields opened via tag clicks (separate from textarea)
+let tagForceSet = new Set();   // fields force-masked via tag clicks
 let sortColumn = null;
 let sortReverse = false;
+
+// Virtual scroll state
+let filteredRows = [];       // current filtered+sorted view (indices or rows)
+let filteredMaskedRows = []; // parallel masked rows for filtered view
+let filteredIndices = [];    // original row indices for filtered view (for agent send)
+let displayCols = [];        // column descriptors
+let vsRowHeight = 30;        // estimated row height in px
+let vsVisibleCount = 50;     // rows to render
+let vsScrollTop = 0;
+let stableColumnOrder = [];   // fixed order for field tags (no re-sorting on click)
+let lastDataVersion = -1;     // tracks server data_version for row refresh
+let lastQueryVersion = -1;   // tracks server query_version — resets when new query arrives (not remask)
+let vsRenderStart = 0;
+let vsRenderEnd = 0;
+let vsTicking = false;
+let rowDataVersion = 0;      // tracks when row data changes
 
 // ─── API ─────────────────────────────────────────────────────────────
 
@@ -670,12 +735,66 @@ function connectSSE() {
   es.onerror = () => { setTimeout(connectSSE, 3000); es.close(); };
 }
 
+let fetchingRows = false;
 async function fetchState() {
   try {
     const s = await api("/api/state");
+    const newRowCount = (s.result && s.result.row_count) || 0;
+    const newDataVersion = s.data_version || 0;
+    const newQueryVersion = s.query_version || 0;
+    // Reset tag overrides BEFORE render so tags draw in correct (encrypted) state
+    if (newQueryVersion !== lastQueryVersion) {
+      tagAllowSet.clear();
+      tagForceSet.clear();
+      stableColumnOrder = [];
+      updateAllowPlainHighlight();
+      lastQueryVersion = newQueryVersion;
+    }
     appState = s;
     render(s);
+    // Fetch rows when data version changed (remask, new query, etc.) or initial load
+    if ((newDataVersion !== lastDataVersion || (newRowCount > 0 && resultRows.length === 0)) && !fetchingRows) {
+      lastDataVersion = newDataVersion;
+      await fetchAllRows();
+    }
   } catch (e) { console.error("fetchState:", e); }
+}
+
+async function fetchAllRows() {
+  const total = (appState.result && appState.result.row_count) || 0;
+  if (total === 0) {
+    resultRows = []; maskedRows = []; resultHeaders = []; maskedHeaders = [];
+    maskedColumns = [];
+    rowDataVersion++;
+    rebuildFilterColumns();
+    applyResultView();
+    return;
+  }
+  fetchingRows = true;
+  try {
+    // Fetch all rows in chunks (server-side pagination for transport)
+    const chunkSize = 2000;
+    let allRows = [], allMasked = [];
+    for (let offset = 0; offset < total; offset += chunkSize) {
+      const r = await api("/api/rows?offset=" + offset + "&limit=" + chunkSize);
+      if (!r || !r.rows) break;
+      allRows = allRows.concat(r.rows);
+      allMasked = allMasked.concat(r.masked_rows || []);
+      if (offset === 0) {
+        resultHeaders = r.headers || [];
+        maskedHeaders = r.masked_headers || [];
+        maskedColumns = r.masked_columns || [];
+      }
+    }
+    resultRows = allRows;
+    maskedRows = allMasked;
+    rowDataVersion++;
+    rebuildFilterColumns();
+    applyResultView();
+    updateApproveBtn();
+  } finally {
+    fetchingRows = false;
+  }
 }
 
 // ─── Render ──────────────────────────────────────────────────────────
@@ -720,24 +839,24 @@ function render(s) {
   qs.className = "state-badge sb-" + s.query_state;
   qs.querySelector(".state-label").textContent = s.query_state_text;
 
-  // Cancel button visibility
+  // Cancel button visibility & query buttons enabled state
   const cancelBtn = document.getElementById("cancel-btn");
   if (cancelBtn) cancelBtn.style.display = s.query_state === "running" ? "" : "none";
+  if (s.query_state !== "running") {
+    document.getElementById("btn-query-masked").disabled = false;
+  }
 
-  // Result data
-  resultRows = s.result.rows || [];
-  resultHeaders = s.result.headers || [];
-  rebuildFilterColumns();
-  // Masked data — must be set BEFORE applyResultView so interleaved columns work
-  maskedRows = (s.masked_result && s.masked_result.rows) || [];
-  maskedHeaders = (s.masked_result && s.masked_result.headers) || [];
-  maskedColumns = (s.masked_result && s.masked_result.masked_columns) || [];
+  // Truncation banner
+  const truncBanner = document.getElementById("truncation-banner");
+  if (s.rows_truncated) {
+    truncBanner.textContent = "Результат обрезан: показано " + (s.result.row_count || 0) + " из " + (s.total_row_count || "?") + " строк (лимит: " + (s.max_rows || "?") + ")";
+    truncBanner.style.display = "";
+  } else {
+    truncBanner.style.display = "none";
+  }
 
-  applyResultView();
-  if (s.result.placeholder && !resultRows.length) showPlaceholder(s.result.placeholder, s.result.placeholder_error);
-
-  // Bundle
-  document.getElementById("bundle-text").textContent = s.bundle_text || "";
+  // Placeholder (rows are fetched separately via /api/rows)
+  if (s.result.placeholder && s.result.row_count === 0) showPlaceholder(s.result.placeholder, s.result.placeholder_error);
 
   // Analysis
   document.getElementById("analysis-masked").textContent = s.analysis_masked || "";
@@ -755,13 +874,112 @@ function render(s) {
   document.getElementById("status-session").textContent = s.session_id ? "ID: " + s.session_id : "";
   document.getElementById("status-bridge").textContent = s.bridge_info || "";
 
-  // Bridge secret & address on MCP tab
-  const bsEl = document.getElementById("bridge-secret-text");
-  if (s.bridge_secret) bsEl.textContent = s.bridge_secret;
+  // Bridge address on MCP tab (secret loaded separately via /api/bridge_secret)
   document.getElementById("bridge-addr").textContent = s.bridge_info || "";
 
-  // Active tab from server
-  // Tab switching is user-driven only — no auto-switch from server
+  // Sync persistent whitelist textarea from server (don't overwrite if user is actively typing)
+  const allowPlainEl = document.getElementById("allow-plain");
+  const serverAllowPlain = s.persistent_allow_plain || "";
+  if (allowPlainEl !== document.activeElement && allowPlainEl.value !== serverAllowPlain) {
+    allowPlainEl.value = serverAllowPlain;
+    updateAllowPlainHighlight();
+  }
+
+  // Unmasked/masked columns indicator — render into both tabs
+  const unmaskedCols = (s.masked_result && s.masked_result.unmasked_columns) || [];
+  const maskedCols = (s.masked_result && s.masked_result.masked_columns) || [];
+  const excludedRaw = s.excluded_fields || "";
+  const excludedList = excludedRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+  // Build stable column order
+  if (unmaskedCols.length > 0 || maskedCols.length > 0) {
+    const allCols = [...unmaskedCols, ...maskedCols];
+    const allSet = new Set(allCols);
+    allCols.forEach(col => { if (!stableColumnOrder.includes(col)) stableColumnOrder.push(col); });
+    stableColumnOrder = stableColumnOrder.filter(col => allSet.has(col));
+  } else {
+    stableColumnOrder = [];
+  }
+
+  const unmaskedSet = new Set(unmaskedCols);
+  const excludedSet = new Set(excludedList.map(s => s.toLowerCase()));
+  // Render field tags into a container
+  function renderFieldTags(container) {
+    container.innerHTML = "";
+    stableColumnOrder.forEach(col => {
+      if (excludedSet.has(col.toLowerCase())) return; // skip excluded fields
+      const isUnmasked = unmaskedSet.has(col);
+      const tag = document.createElement("span");
+      tag.className = isUnmasked ? "unmasked-tag" : "masked-col-tag";
+      if (isUnmasked) tag.style.cursor = "pointer";
+      tag.textContent = col;
+      tag.title = isUnmasked
+        ? "Передаётся открыто. Нажмите, чтобы зашифровать"
+        : "Зашифровано. Нажмите, чтобы разрешить передачу открыто";
+      tag.onclick = isUnmasked ? () => reMaskField(col) : () => allowField(col);
+      container.appendChild(tag);
+      const x = document.createElement("span");
+      x.className = "exclude-x";
+      x.textContent = "✕";
+      x.title = "Исключить поле из выборки";
+      x.onclick = () => excludeField(col);
+      container.appendChild(x);
+    });
+  }
+  function renderExcludedTags(container) {
+    container.innerHTML = "";
+    excludedList.forEach(col => {
+      const tag = document.createElement("span");
+      tag.className = "excluded-col-tag";
+      tag.textContent = col + " ↩";
+      tag.title = "Исключено. Нажмите, чтобы вернуть поле";
+      tag.onclick = () => restoreField(col);
+      container.appendChild(tag);
+    });
+  }
+
+  // Result tab — field tags (hide when auto-send is on — agent gets all fields anyway)
+  const autoSendOn = !!s.auto_send_to_agent;
+  const unmaskedInfoR = document.getElementById("unmasked-info-result");
+  if (stableColumnOrder.length > 0 && !autoSendOn) {
+    unmaskedInfoR.style.display = "";
+    renderFieldTags(document.getElementById("unmasked-cols-result"));
+  } else { unmaskedInfoR.style.display = "none"; }
+
+  const excludedInfoR = document.getElementById("excluded-info-result");
+  if (excludedList.length > 0 && !autoSendOn) {
+    excludedInfoR.style.display = "";
+    renderExcludedTags(document.getElementById("excluded-cols-result"));
+  } else { excludedInfoR.style.display = "none"; }
+
+  // Mode toggle buttons
+  const manualBtn = document.getElementById("mode-manual-btn");
+  const autoBtn = document.getElementById("mode-auto-btn");
+  if (manualBtn && autoBtn) {
+    manualBtn.classList.toggle("mode-active", !autoSendOn);
+    autoBtn.classList.toggle("mode-active", autoSendOn);
+  }
+
+  // Rate limit warning
+  const rlWarn = document.getElementById("rate-limit-warning");
+  if (rlWarn) {
+    if (s.rate_limit_triggered && s.rate_limit_message) {
+      rlWarn.textContent = s.rate_limit_message;
+      rlWarn.style.display = "";
+    } else {
+      rlWarn.style.display = "none";
+    }
+  }
+
+  updateApproveBtn();
+}
+
+function updateApproveBtn() {
+  const approveBtn = document.getElementById("approve-send-btn");
+  if (!approveBtn) return;
+  const autoSendOn = !!(appState && appState.auto_send_to_agent);
+  const hasResultData = resultRows.length > 0;
+  approveBtn.style.visibility = (hasResultData && !autoSendOn) ? "visible" : "hidden";
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────
@@ -774,46 +992,164 @@ function showTab(name, btn) {
   if (btn) { btn.classList.add("active"); }
   else {
     const btns = document.querySelectorAll("#toolbar .tab-btn");
-    const map = { result: 0, bundle: 1, analysis: 2, raw: 3, settings: 4 };
+    const map = { raw: 0, result: 1, analysis: 2, settings: 3 };
     if (map[name] !== undefined && btns[map[name]]) btns[map[name]].classList.add("active");
   }
   if (name === "settings") loadSettingsForm();
+  if (name === "raw") loadBridgeSecret();
 }
 
 // ─── Result Table ────────────────────────────────────────────────────
 
 function rebuildFilterColumns() {
-  const sel = document.getElementById("result-filter-col");
-  const cur = sel.value;
-  sel.innerHTML = "<option>Все поля</option>";
-  resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; sel.appendChild(o); });
-  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  // Update column options in all existing filter rows
+  document.querySelectorAll(".filter-row select.filter-col").forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = "";
+    resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; sel.appendChild(o); });
+    if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  });
+}
+
+function addFilterRow(col, op, val) {
+  const container = document.getElementById("filter-rows");
+  const row = document.createElement("div");
+  row.className = "filter-row";
+
+  const colSel = document.createElement("select");
+  colSel.className = "filter-col";
+  resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; colSel.appendChild(o); });
+  if (col && [...colSel.options].some(o => o.value === col)) colSel.value = col;
+  colSel.onchange = () => applyResultView();
+
+  const opSel = document.createElement("select");
+  opSel.className = "filter-op";
+  ["содержит", "не содержит", "=", "!=", ">", ">=", "<", "<="].forEach(o => {
+    const opt = document.createElement("option"); opt.textContent = o; opSel.appendChild(opt);
+  });
+  if (op) opSel.value = op;
+  opSel.onchange = () => applyResultView();
+
+  const valInp = document.createElement("input");
+  valInp.className = "filter-val";
+  valInp.type = "text";
+  valInp.placeholder = "значение";
+  if (val) valInp.value = val;
+  valInp.oninput = () => applyResultView();
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "btn-remove";
+  removeBtn.innerHTML = "&times;";
+  removeBtn.title = "Удалить фильтр";
+  removeBtn.onclick = () => { row.remove(); applyResultView(); };
+
+  row.append(colSel, opSel, valInp, removeBtn);
+  container.appendChild(row);
+  applyResultView();
+}
+
+function parseNumericValue(text) {
+  if (text == null || text === "") return NaN;
+  // Normalize: remove spaces, replace comma with dot
+  const s = String(text).trim().replace(/\s/g, "").replace(",", ".");
+  const n = parseFloat(s);
+  // Ensure the whole string is a number (not "123abc")
+  return isNaN(n) ? NaN : n;
+}
+
+function getActiveFilters() {
+  const filters = [];
+  document.querySelectorAll(".filter-row").forEach(row => {
+    const col = row.querySelector(".filter-col")?.value;
+    const op = row.querySelector(".filter-op")?.value;
+    const val = row.querySelector(".filter-val")?.value ?? "";
+    if (col && val !== "") filters.push({ col, op, val });
+  });
+  return filters;
+}
+
+function matchesFilter(row, mrow, filter) {
+  const cellText = toText(row[filter.col]);
+  const maskedText = mrow ? toText(mrow[filter.col]) : "";
+  const valLower = filter.val.toLowerCase();
+
+  switch (filter.op) {
+    case "содержит":
+      return cellText.toLowerCase().includes(valLower) ||
+             maskedText.toLowerCase().includes(valLower);
+    case "не содержит":
+      return !cellText.toLowerCase().includes(valLower) &&
+             !maskedText.toLowerCase().includes(valLower);
+    case "=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (!isNaN(nCell) && !isNaN(nVal)) return nCell === nVal;
+      return cellText.toLowerCase() === valLower || maskedText.toLowerCase() === valLower;
+    }
+    case "!=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (!isNaN(nCell) && !isNaN(nVal)) return nCell !== nVal;
+      return cellText.toLowerCase() !== valLower && maskedText.toLowerCase() !== valLower;
+    }
+    case ">": case ">=": case "<": case "<=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (isNaN(nCell) || isNaN(nVal)) return false;
+      if (filter.op === ">") return nCell > nVal;
+      if (filter.op === ">=") return nCell >= nVal;
+      if (filter.op === "<") return nCell < nVal;
+      return nCell <= nVal;
+    }
+    default: return true;
+  }
 }
 
 function applyResultView() {
   cellAnchor = null; cellRange = null; cellDragging = false;
   const filterText = (document.getElementById("result-filter").value || "").trim().toLowerCase();
-  const filterCol = document.getElementById("result-filter-col").value;
+  const columnFilters = getActiveFilters();
 
-  let rows = resultRows;
+  // Build filtered index array (keeps original indices for masked row lookup)
+  let indices = resultRows.map((_, i) => i);
+
+  // Quick text search across all fields
   if (filterText) {
-    rows = rows.filter(row => {
-      if (filterCol === "Все поля") return resultHeaders.some(h => toText(row[h]).toLowerCase().includes(filterText));
-      return toText(row[filterCol]).toLowerCase().includes(filterText);
+    indices = indices.filter(i => {
+      const row = resultRows[i];
+      const mrow = maskedRows[i];
+      return resultHeaders.some(h => {
+        if (toText(row[h]).toLowerCase().includes(filterText)) return true;
+        if (mrow && toText(mrow[h]).toLowerCase().includes(filterText)) return true;
+        return false;
+      });
+    });
+  }
+
+  // Column-specific filters (AND logic)
+  if (columnFilters.length) {
+    indices = indices.filter(i => {
+      const row = resultRows[i];
+      const mrow = maskedRows[i];
+      return columnFilters.every(f => matchesFilter(row, mrow, f));
     });
   }
 
   if (sortColumn !== null) {
-    rows = [...rows].sort((a, b) => {
-      const va = sortKey(a[sortColumn]), vb = sortKey(b[sortColumn]);
+    indices.sort((a, b) => {
+      const va = sortKey(resultRows[a][sortColumn]), vb = sortKey(resultRows[b][sortColumn]);
       let cmp = va[0] !== vb[0] ? va[0] - vb[0] : va[1] < vb[1] ? -1 : va[1] > vb[1] ? 1 : 0;
       return sortReverse ? -cmp : cmp;
     });
   }
 
+  // Store for virtual scroll renderer
+  filteredIndices = indices;
+  filteredRows = indices.map(i => resultRows[i]);
+  filteredMaskedRows = indices.map(i => maskedRows[i] || null);
+
   const table = document.getElementById("result-table");
   const thead = table.querySelector("thead tr");
-  const tbody = table.querySelector("tbody");
   const ph = document.getElementById("result-placeholder");
   const wrap = document.getElementById("result-table-wrap");
   const rc = document.getElementById("row-count");
@@ -828,7 +1164,7 @@ function applyResultView() {
 
   // Build interleaved column list: for masked columns insert alias column right after real one
   const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
-  const displayCols = [];  // {header, isMasked, srcHeader}
+  displayCols = [];  // {header, isMasked, srcHeader}
   resultHeaders.forEach(h => {
     displayCols.push({ header: h, isMasked: false, srcHeader: h });
     if (hasMasked && maskedColumns.includes(h)) {
@@ -851,8 +1187,7 @@ function applyResultView() {
     thead.appendChild(th);
   });
 
-  tbody.innerHTML = "";
-  if (!rows.length) {
+  if (!filteredRows.length) {
     wrap.style.display = "none";
     ph.style.display = ""; ph.textContent = "По фильтру ничего не найдено";
     ph.className = "result-placeholder";
@@ -862,12 +1197,59 @@ function applyResultView() {
 
   ph.style.display = "none";
   wrap.style.display = "";
-  rc.textContent = rows.length === resultRows.length ? rows.length + " строк" : rows.length + " из " + resultRows.length;
+  rc.textContent = filteredRows.length === resultRows.length ? filteredRows.length + " строк" : filteredRows.length + " из " + resultRows.length;
 
-  rows.forEach((row, ri) => {
+  // Initialize virtual scroll
+  vsRenderStart = -1; // force re-render
+  wrap.scrollTop = 0;
+  vsScrollTop = 0;
+  renderVisibleRows();
+}
+
+// ─── Virtual Scroll ──────────────────────────────────────────────────
+
+function renderVisibleRows() {
+  const wrap = document.getElementById("result-table-wrap");
+  const tbody = document.querySelector("#result-table tbody");
+  if (!tbody || !filteredRows.length || !displayCols.length) return;
+
+  const totalRows = filteredRows.length;
+  const scrollTop = wrap.scrollTop;
+  const wrapHeight = wrap.clientHeight || 400; // fallback if not yet laid out
+
+  // Account for thead height in scroll calculations
+  const thead = document.querySelector("#result-table thead");
+  const theadH = thead ? thead.offsetHeight : 0;
+
+  // Calculate visible range
+  const effectiveScroll = Math.max(0, scrollTop - theadH);
+  const startIdx = Math.max(0, Math.floor(effectiveScroll / vsRowHeight) - 5);
+  const endIdx = Math.min(totalRows, Math.ceil((effectiveScroll + wrapHeight) / vsRowHeight) + 5);
+
+  // Skip re-render if same range (but always render if forced via vsRenderStart === -1)
+  if (vsRenderStart >= 0 && startIdx === vsRenderStart && endIdx === vsRenderEnd) return;
+  vsRenderStart = startIdx;
+  vsRenderEnd = endIdx;
+
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
+  const fragment = document.createDocumentFragment();
+
+  // Top spacer row
+  if (startIdx > 0) {
+    const topSpacer = document.createElement("tr");
+    topSpacer.style.height = (startIdx * vsRowHeight) + "px";
+    topSpacer.className = "vs-spacer";
+    fragment.appendChild(topSpacer);
+  }
+
+  // Visible rows
+  for (let ri = startIdx; ri < endIdx; ri++) {
+    const row = filteredRows[ri];
+    if (!row) continue;
+    const maskedRow = hasMasked ? filteredMaskedRows[ri] : null;
     const tr = document.createElement("tr");
-    const maskedRow = hasMasked && maskedRows[ri] ? maskedRows[ri] : null;
-    displayCols.forEach((col, ci) => {
+    for (let ci = 0; ci < displayCols.length; ci++) {
+      const col = displayCols[ci];
       const td = document.createElement("td");
       let v;
       if (col.isMasked) {
@@ -883,13 +1265,45 @@ function applyResultView() {
       td.onmousedown = (e) => cellMouseDown(e, ri, ci);
       td.onmouseover = (e) => { if (e.buttons === 1 && cellDragging) cellDragTo(ri, ci); };
       tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
+    }
+    fragment.appendChild(tr);
+  }
+
+  // Bottom spacer row
+  const bottomH = (totalRows - endIdx) * vsRowHeight;
+  if (bottomH > 0) {
+    const bottomSpacer = document.createElement("tr");
+    bottomSpacer.style.height = bottomH + "px";
+    bottomSpacer.className = "vs-spacer";
+    fragment.appendChild(bottomSpacer);
+  }
+
+  tbody.innerHTML = "";
+  tbody.appendChild(fragment);
+
+  // Restore cell selection highlight after DOM rebuild
+  if (cellRange) paintCellSelection();
 }
+
+// Attach scroll listener once
+(function() {
+  const wrap = document.getElementById("result-table-wrap");
+  if (wrap) {
+    wrap.addEventListener("scroll", () => {
+      if (!vsTicking) {
+        vsTicking = true;
+        requestAnimationFrame(() => {
+          renderVisibleRows();
+          vsTicking = false;
+        });
+      }
+    }, { passive: true });
+  }
+})();
 
 // renderMaskedTable removed — masked data merged into main table
 
+// ─── Virtual text rendering for Bundle tab ───────────────────────────
 function showPlaceholder(text, isError) {
   const ph = document.getElementById("result-placeholder");
   const wrap = document.getElementById("result-table-wrap");
@@ -920,6 +1334,8 @@ let cellDragging = false;
 
 function cellMouseDown(e, r, c) {
   e.preventDefault();
+  // Blur any focused input so Ctrl+C works on table
+  if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur();
   if (e.shiftKey && cellAnchor) {
     cellRange = makeRange(cellAnchor.r, cellAnchor.c, r, c);
     cellDragging = true;
@@ -950,32 +1366,54 @@ function paintCellSelection() {
     td.classList.remove("cell-selected", "cell-anchor");
   });
   if (!cellRange) return;
-  const rows = tbody.children;
-  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < rows.length; ri++) {
-    const cells = rows[ri].children;
-    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < cells.length; ci++) {
-      cells[ci].classList.add("cell-selected");
+  // Virtual scroll: rows in DOM have dataset.r with logical row index
+  const tds = tbody.querySelectorAll("td");
+  tds.forEach(td => {
+    const ri = parseInt(td.dataset.r);
+    const ci = parseInt(td.dataset.c);
+    if (isNaN(ri) || isNaN(ci)) return;
+    if (ri >= cellRange.r1 && ri <= cellRange.r2 && ci >= cellRange.c1 && ci <= cellRange.c2) {
+      td.classList.add("cell-selected");
     }
-  }
-  if (cellAnchor && cellAnchor.r < rows.length) {
-    const ac = rows[cellAnchor.r].children[cellAnchor.c];
-    if (ac) ac.classList.add("cell-anchor");
-  }
+    if (cellAnchor && ri === cellAnchor.r && ci === cellAnchor.c) {
+      td.classList.add("cell-anchor");
+    }
+  });
 }
 
 // Ctrl+C / Cmd+C on table (e.code works regardless of keyboard layout)
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "с") && cellRange) {
+  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "с")) {
     const active = document.activeElement;
     if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+    // Only act if result tab is active and we have data
+    const resultTab = document.getElementById("tab-result");
+    if (!resultTab || !resultTab.classList.contains("active") || !filteredRows.length) return;
     e.preventDefault();
-    copyCellSelection();
+    if (cellRange) {
+      copyCellSelection();
+    } else {
+      copyAllRows();
+    }
   }
 });
 
+function onSearchInput() {
+  const v = document.getElementById("result-filter").value;
+  document.getElementById("search-clear").style.display = v ? "block" : "none";
+  applyResultView();
+}
+
+function clearSearch() {
+  document.getElementById("result-filter").value = "";
+  document.getElementById("search-clear").style.display = "none";
+  applyResultView();
+}
+
 function clearFilter() {
   document.getElementById("result-filter").value = "";
-  document.getElementById("result-filter-col").value = "Все поля";
+  document.getElementById("search-clear").style.display = "none";
+  document.getElementById("filter-rows").innerHTML = "";
   applyResultView();
 }
 
@@ -985,15 +1423,19 @@ function toText(v) { return v == null ? "" : typeof v === "object" ? JSON.string
 
 function copyCellSelection() {
   if (!cellRange) { toast("Нет выделения"); return; }
-  const tbody = document.querySelector("#result-table tbody");
-  if (!tbody) return;
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
   const lines = [];
-  const rows = tbody.children;
-  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < rows.length; ri++) {
-    const cells = rows[ri].children;
+  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < filteredRows.length; ri++) {
+    const row = filteredRows[ri];
+    const maskedRow = hasMasked ? filteredMaskedRows[ri] : null;
     const vals = [];
-    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < cells.length; ci++) {
-      vals.push(cells[ci].textContent);
+    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < displayCols.length; ci++) {
+      const col = displayCols[ci];
+      if (col.isMasked) {
+        vals.push(maskedRow ? toText(maskedRow[col.srcHeader]) : "");
+      } else {
+        vals.push(toText(row[col.srcHeader]));
+      }
     }
     lines.push(vals.join("\t"));
   }
@@ -1004,25 +1446,178 @@ function copyCellSelection() {
 }
 
 function copyAllRows() {
-  if (!resultRows.length) { toast("Нет данных"); return; }
+  const rows = filteredRows.length ? filteredRows : resultRows;
+  if (!rows.length) { toast("Нет данных"); return; }
   const lines = [resultHeaders.join("\t")];
-  resultRows.forEach(row => lines.push(resultHeaders.map(h => toText(row[h])).join("\t")));
-  navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Скопировано " + resultRows.length + " строк"));
+  rows.forEach(row => lines.push(resultHeaders.map(h => toText(row[h])).join("\t")));
+  const suffix = filteredRows.length && filteredRows.length !== resultRows.length
+    ? " строк (отфильтровано)" : " строк";
+  navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Скопировано " + rows.length + suffix));
 }
 
-function copyBundle() {
-  const t = document.getElementById("bundle-text").textContent;
-  if (!t) return;
-  navigator.clipboard.writeText(t).then(() => toast("Данные скопированы"));
+
+function copyAnalysis(which) {
+  const el = document.getElementById(which === "masked" ? "analysis-masked" : "analysis-display");
+  const t = el ? el.textContent : "";
+  if (!t) { toast("Нет данных для копирования"); return; }
+  navigator.clipboard.writeText(t).then(() => toast("Анализ скопирован"));
+}
+
+async function loadBridgeSecret() {
+  const el = document.getElementById("bridge-secret-text");
+  if (el.textContent && el.textContent !== "—") return;
+  try {
+    const r = await api("/api/bridge_secret");
+    if (r.bridge_secret) el.textContent = r.bridge_secret;
+  } catch (e) { /* ignore */ }
 }
 
 function copyBridgeSecret() {
   const t = document.getElementById("bridge-secret-text").textContent;
-  if (!t || t === "—") return;
+  if (!t || t === "—") { loadBridgeSecret(); return; }
   navigator.clipboard.writeText(t).then(() => toast("Bridge Secret скопирован"));
 }
 
 // ─── Actions ─────────────────────────────────────────────────────────
+
+function mergedAllowPlain() {
+  const fromTextarea = document.getElementById("allow-plain").value.split(",").map(s => s.trim()).filter(Boolean);
+  const merged = new Set(fromTextarea.map(s => s.toLowerCase()));
+  tagAllowSet.forEach(f => merged.add(f.toLowerCase()));
+  tagForceSet.forEach(f => merged.delete(f.toLowerCase()));
+  // Return original-case names
+  const result = [];
+  const seen = new Set();
+  [...fromTextarea, ...tagAllowSet].forEach(f => {
+    const lc = f.toLowerCase();
+    if (merged.has(lc) && !seen.has(lc)) { result.push(f); seen.add(lc); }
+  });
+  return result.join(", ");
+}
+
+function mergedForceMask() {
+  const fromTextarea = document.getElementById("force-mask").value.split(",").map(s => s.trim()).filter(Boolean);
+  const merged = new Set(fromTextarea.map(s => s.toLowerCase()));
+  tagForceSet.forEach(f => merged.add(f.toLowerCase()));
+  tagAllowSet.forEach(f => merged.delete(f.toLowerCase()));
+  const result = [];
+  const seen = new Set();
+  [...fromTextarea, ...tagForceSet].forEach(f => {
+    const lc = f.toLowerCase();
+    if (merged.has(lc) && !seen.has(lc)) { result.push(f); seen.add(lc); }
+  });
+  return result.join(", ");
+}
+
+function updateAllowPlainHighlight() {
+  const el = document.getElementById("allow-plain");
+  const hasValue = el.value.trim().split(",").map(s => s.trim()).filter(Boolean).length > 0;
+  el.classList.toggle("has-value", hasValue);
+}
+
+let allowPlainDebounce = null;
+function onAllowPlainInput() {
+  updateAllowPlainHighlight();
+  clearTimeout(allowPlainDebounce);
+  allowPlainDebounce = setTimeout(async () => {
+    const allowPlain = document.getElementById("allow-plain").value;
+    const forceMask = document.getElementById("force-mask").value;
+    await api("/api/set_whitelist", { allow_plain_fields: allowPlain, force_mask_fields: forceMask });
+  }, 400);
+}
+
+async function allowField(fieldName) {
+  tagAllowSet.add(fieldName);
+  tagForceSet.delete(fieldName);
+  try {
+    const r = await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    if (r.ok) toast(fieldName + " открыто.");
+    else toast(r.error || "Перезапустите запрос.");
+    updateAllowPlainHighlight();
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function reMaskField(fieldName) {
+  tagForceSet.add(fieldName);
+  tagAllowSet.delete(fieldName);
+  try {
+    const r = await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    if (r.ok) toast(fieldName + " зашифровано.");
+    else toast(r.error || "Ошибка ремаскировки");
+    updateAllowPlainHighlight();
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function doApproveSend() {
+  try {
+    // Send filtered indices so server builds bundle from visible rows only
+    const isFiltered = filteredIndices.length !== resultRows.length;
+    const payload = isFiltered ? { filtered_indices: filteredIndices } : {};
+    const r = await api("/api/approve_send", payload);
+    if (r.ok) toast("Данные отправлены агенту" + (isFiltered ? " (" + filteredIndices.length + " строк)" : "") + ".");
+    else toast(r.error || "Ошибка");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function setSendMode(auto) {
+  try {
+    await api("/api/auto_send", { enabled: auto });
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+function getExcludedList() {
+  return (appState.excluded_fields || "").split(",").map(s => s.trim()).filter(Boolean);
+}
+
+async function excludeField(fieldName) {
+  const current = getExcludedList();
+  if (current.some(f => f.toLowerCase() === fieldName.toLowerCase())) {
+    toast(fieldName + " уже исключено");
+    return;
+  }
+  current.push(fieldName);
+  // Clean up text fields — remove excluded field from both
+  const apEl = document.getElementById("allow-plain");
+  apEl.value = apEl.value.split(",").map(s => s.trim()).filter(Boolean)
+    .filter(f => f.toLowerCase() !== fieldName.toLowerCase()).join(", ");
+  const fmEl = document.getElementById("force-mask");
+  fmEl.value = fmEl.value.split(",").map(s => s.trim()).filter(Boolean)
+    .filter(f => f.toLowerCase() !== fieldName.toLowerCase()).join(", ");
+  try {
+    const r = await api("/api/exclude_fields", { excluded_fields: current.join(", ") });
+    if (r.ok) {
+      toast(fieldName + " исключено из выборки.");
+    } else {
+      toast(r.error || "Ошибка исключения поля.");
+    }
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function restoreField(fieldName) {
+  const current = getExcludedList().filter(f => f.toLowerCase() !== fieldName.toLowerCase());
+  try {
+    const r = await api("/api/exclude_fields", { excluded_fields: current.join(", ") });
+    if (r.ok) {
+      toast(fieldName + " возвращено в выборку.");
+    } else {
+      toast(r.error || "Ошибка возврата поля.");
+    }
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
 
 async function doConnect() {
   const url = document.getElementById("url").value.trim();
@@ -1046,9 +1641,8 @@ async function doQuery(mode) {
   const queryText = document.getElementById("query-input").value.trim();
   if (!queryText) { toast("Введите текст запроса"); return; }
   if (!appState.connection || !appState.connection.verified) { toast("Сначала подключитесь к серверу"); return; }
-  const forceMask = document.getElementById("force-mask").value;
-  const allowPlain = document.getElementById("allow-plain").value;
-  document.getElementById("btn-query-direct").disabled = true;
+  const forceMask = mergedForceMask();
+  const allowPlain = mergedAllowPlain();
   document.getElementById("btn-query-masked").disabled = true;
   try {
     const r = await api("/api/query", {
@@ -1067,7 +1661,6 @@ async function doQuery(mode) {
     if (e.name === "AbortError") toast("Таймаут запроса (300 сек)");
     else toast("Ошибка: " + e.message);
   } finally {
-    document.getElementById("btn-query-direct").disabled = false;
     document.getElementById("btn-query-masked").disabled = false;
   }
 }
@@ -1089,6 +1682,9 @@ function clearToken() {
 async function doClearSession() {
   await api("/api/clear_session", {});
   sortColumn = null; sortReverse = false;
+  resultRows = []; maskedRows = []; filteredRows = []; filteredMaskedRows = []; filteredIndices = [];
+  tagAllowSet.clear(); tagForceSet.clear();
+  rowDataVersion++;
   toast("Сессия очищена");
 }
 
@@ -1123,6 +1719,7 @@ async function loadSettingsForm() {
     document.getElementById("s-auto-execute").checked = !!s.defaults_auto_execute;
     document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
     document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
+    document.getElementById("s-keywords-hint").textContent = s.allow_plain_keywords || "";
   } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
 }
 
@@ -1179,6 +1776,7 @@ function toggleTokenVis() {
 
 fetchState().then(() => {
   connectSSE();
+  loadBridgeSecret();
   // Auto-connect if we have saved settings with URL
   if (appState.has_saved_settings && appState.connection && appState.connection.url && !appState.connection.verified) {
     doConnect();
