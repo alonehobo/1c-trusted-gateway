@@ -240,7 +240,10 @@ func (ms *McpServer) toolQuery(id any, args map[string]any) map[string]any {
 
 	okVal, _ := result["ok"].(bool)
 	if !okVal {
-		errMsg, _ := result["error"].(string)
+		errMsg, _ := result["message"].(string)
+		if errMsg == "" {
+			errMsg, _ = result["error"].(string)
+		}
 		if errMsg == "" {
 			errMsg = "Query failed"
 		}
