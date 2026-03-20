@@ -1,0 +1,1808 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1C Trusted Gateway</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   Design System — CSS Custom Properties
+   ═══════════════════════════════════════════════════════════════ */
+
+:root { --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+
+body.theme-dark {
+  --bg-0: #0c0d10; --bg-1: #141519; --bg-2: #1c1d24; --bg-3: #25262e;
+  --surface: rgba(255,255,255,0.04); --surface-hover: rgba(255,255,255,0.07);
+  --surface-active: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.08); --border-subtle: rgba(255,255,255,0.05);
+  --text-primary: #f0f0f3; --text-secondary: #a0a3b1; --text-tertiary: #6b6f80;
+  --accent: #6c8aff; --accent-soft: rgba(108,138,255,0.15); --accent-hover: #8ba3ff;
+  --success: #3ecf8e; --success-soft: rgba(62,207,142,0.12);
+  --warning: #f0b429; --warning-soft: rgba(240,180,41,0.12);
+  --error: #f56565; --error-soft: rgba(245,101,101,0.12);
+  --input-bg: rgba(255,255,255,0.04); --input-border: rgba(255,255,255,0.10);
+  --input-focus: rgba(108,138,255,0.4);
+  --table-header: rgba(255,255,255,0.03); --table-row-hover: rgba(108,138,255,0.06);
+  --table-selected: rgba(108,138,255,0.12);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+  --glow: 0 0 20px rgba(108,138,255,0.1);
+  --scrollbar-thumb: rgba(255,255,255,0.1); --scrollbar-track: transparent;
+}
+
+body.theme-light {
+  --bg-0: #f8f9fb; --bg-1: #ffffff; --bg-2: #f3f4f6; --bg-3: #e8eaed;
+  --surface: rgba(0,0,0,0.02); --surface-hover: rgba(0,0,0,0.04);
+  --surface-active: rgba(0,0,0,0.06);
+  --border: rgba(0,0,0,0.08); --border-subtle: rgba(0,0,0,0.05);
+  --text-primary: #1a1c23; --text-secondary: #5f6470; --text-tertiary: #9096a4;
+  --accent: #4f6df5; --accent-soft: rgba(79,109,245,0.10); --accent-hover: #3d5ce0;
+  --success: #22a868; --success-soft: rgba(34,168,104,0.10);
+  --warning: #d4940a; --warning-soft: rgba(212,148,10,0.10);
+  --error: #dc3545; --error-soft: rgba(220,53,69,0.10);
+  --input-bg: rgba(0,0,0,0.02); --input-border: rgba(0,0,0,0.12);
+  --input-focus: rgba(79,109,245,0.4);
+  --table-header: rgba(0,0,0,0.02); --table-row-hover: rgba(79,109,245,0.04);
+  --table-selected: rgba(79,109,245,0.08);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06); --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+  --glow: 0 0 20px rgba(79,109,245,0.06);
+  --scrollbar-thumb: rgba(0,0,0,0.12); --scrollbar-track: transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Reset & Base
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+  background: var(--bg-0); color: var(--text-primary);
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+::selection { background: var(--accent-soft); color: var(--text-primary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Layout
+   ═══════════════════════════════════════════════════════════════ */
+
+#app { display: flex; flex-direction: column; height: 100vh; gap: 1px; background: var(--border-subtle); }
+.panel { background: var(--bg-1); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Header — Connection Panel
+   ═══════════════════════════════════════════════════════════════ */
+
+#header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; }
+#header .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+#header .logo-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 13px; color: #fff; letter-spacing: -0.5px;
+}
+#header .logo-text { font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; }
+#header .logo-version { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
+
+.header-fields { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.header-field { position: relative; }
+.header-field label { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase;
+  letter-spacing: 0.5px; pointer-events: none; transition: all var(--transition); opacity: 0; }
+.header-field input:focus + label, .header-field input:not(:placeholder-shown) + label {
+  top: 2px; transform: none; font-size: 9px; opacity: 1; }
+.header-field input { width: 100%; }
+.field-url { flex: 2; }
+.field-token { flex: 1; }
+
+.mask-bar { display: flex; gap: 12px; padding: 6px 16px !important; align-items: center; }
+.mask-field { flex: 1; display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.skip-numeric-label { display: flex; align-items: center; gap: 4px; flex-shrink: 0; cursor: pointer; }
+.mask-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; padding-top: 5px; flex-shrink: 0; }
+.mask-input {
+  flex: 1; min-width: 0; resize: vertical;
+  font-family: inherit; font-size: 12px; line-height: 1.4;
+  padding: 4px 8px; border-radius: var(--radius-xs);
+  background: var(--input-bg); border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.mask-input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.mask-input.has-value { border-color: var(--error); background: var(--error-soft); }
+.mask-info { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.unmasked-tags { display: flex; flex-wrap: wrap; gap: 3px; }
+.unmasked-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); }
+.unmasked-tag:hover { }
+.masked-count-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--warning-soft); color: var(--warning); font-weight: 600; white-space: nowrap; }
+.masked-col-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--warning-soft); color: var(--warning); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); }
+.masked-col-tag:hover { }
+.excluded-col-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--error-soft); color: var(--error); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); text-decoration: line-through; }
+.excluded-col-tag:hover { opacity: 0.8; }
+.exclude-x { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--error-soft); color: var(--error); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); margin-left: -2px; }
+.exclude-x:hover { background: var(--error); color: #fff; }
+.field-legend { display: inline-flex; gap: 8px; margin-left: 12px; font-size: 10px; color: var(--text-tertiary); align-items: center; }
+.field-legend-item { display: inline-flex; align-items: center; gap: 3px; }
+.field-legend-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* Bridge secret in header */
+.bridge-label { font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; font-size: 10px; }
+.bridge-secret {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 11px;
+  color: var(--accent); background: var(--accent-soft); padding: 2px 8px;
+  border-radius: 4px; cursor: pointer; user-select: all; letter-spacing: 0.3px;
+}
+.bridge-secret:hover { background: var(--accent); color: #fff; }
+.bridge-addr { color: var(--text-tertiary); font-family: 'Cascadia Code', monospace; font-size: 10px; }
+
+.query-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: all var(--transition); }
+.conn-dot.ok { background: var(--success); box-shadow: 0 0 8px var(--success); }
+.conn-dot.fail { background: var(--text-tertiary); }
+.conn-dot.pulse { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.divider-v { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Inputs
+   ═══════════════════════════════════════════════════════════════ */
+
+input[type=text], input[type=password], select {
+  background: var(--input-bg); color: var(--text-primary); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); padding: 7px 10px; font-size: 12px; font-family: inherit;
+  outline: none; transition: all var(--transition);
+}
+select option { background: var(--bg-2); color: var(--text-primary); }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--input-focus); }
+input::placeholder { color: var(--text-tertiary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Buttons
+   ═══════════════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; border-radius: var(--radius-xs); padding: 6px 12px;
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: all var(--transition); white-space: nowrap; line-height: 1.4;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: var(--accent); color: #fff;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-md), var(--glow); }
+
+.btn-ghost { background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--input-border); }
+.btn-ghost.mode-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-ghost.mode-active:hover { background: var(--accent-hover); }
+
+.btn-icon { background: transparent; color: var(--text-tertiary); padding: 6px; border-radius: var(--radius-xs); }
+.btn-icon:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+.btn-xs { padding: 3px 8px; font-size: 11px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Toolbar — Tabs + Task + State
+   ═══════════════════════════════════════════════════════════════ */
+
+#toolbar {
+  display: flex; align-items: center; gap: 2px; padding: 6px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab-btn {
+  background: transparent; color: var(--text-secondary); border: none;
+  border-radius: var(--radius-xs); padding: 6px 14px;
+  font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: all var(--transition); position: relative;
+}
+.tab-btn:hover { color: var(--text-primary); background: var(--surface-hover); }
+.tab-btn.active { color: var(--text-primary); }
+.tab-btn.active::after {
+  content: ''; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  width: 20px; height: 2px; background: var(--accent); border-radius: 1px;
+}
+
+#task-text { flex: 1; font-size: 11px; color: var(--text-tertiary); text-align: center;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
+
+.state-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  flex-shrink: 0; transition: all var(--transition);
+}
+.state-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+.sb-idle { background: var(--surface); color: var(--text-tertiary); }
+.sb-idle .dot { background: var(--text-tertiary); }
+.sb-running { background: var(--warning-soft); color: var(--warning); }
+.sb-running .dot { background: var(--warning); animation: pulse 1.5s infinite; }
+.sb-success { background: var(--success-soft); color: var(--success); }
+.sb-success .dot { background: var(--success); }
+.sb-warning { background: var(--warning-soft); color: var(--warning); }
+.sb-warning .dot { background: var(--warning); }
+.sb-error { background: var(--error-soft); color: var(--error); }
+.sb-error .dot { background: var(--error); }
+.sb-approval { background: var(--accent-soft); color: var(--accent); }
+.sb-approval .dot { background: var(--accent); animation: pulse 1.5s infinite; }
+
+/* Meta pill */
+.meta-pill { font-size: 11px; color: var(--text-tertiary); padding: 3px 8px;
+             background: var(--surface); border-radius: 20px; white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Content Area
+   ═══════════════════════════════════════════════════════════════ */
+
+#content { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+.tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; padding: 16px 20px; }
+.tab-panel.active { display: flex; }
+
+/* ─── Result Table ─── */
+#result-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; flex-wrap: wrap; }
+#result-actions .search-wrap { position: relative; flex: 0 0 240px; }
+#result-actions .search-wrap input { width: 100%; padding-left: 30px; padding-right: 24px; }
+#result-actions .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); font-size: 13px; pointer-events: none; }
+#result-actions .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-tertiary); font-size: 14px; display: none; line-height: 1; padding: 2px; }
+#result-actions .search-clear:hover { color: var(--text-primary); }
+.row-count { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+#filter-rows { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
+#filter-rows:empty { display: none; }
+.filter-row { display: flex; align-items: center; gap: 6px; }
+.filter-row select { font-size: 12px; padding: 3px 6px; }
+.filter-row input { font-size: 12px; padding: 3px 8px; width: 160px; }
+.filter-row .btn-remove { background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+  font-size: 15px; padding: 0 4px; line-height: 1; }
+.filter-row .btn-remove:hover { color: var(--error); }
+
+.table-wrap {
+  flex: 1; min-height: 0; overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-1);
+  position: relative;
+}
+.truncation-banner {
+  padding: 6px 12px; background: var(--warning-soft); color: var(--warning);
+  font-size: 11px; text-align: center; border-bottom: 1px solid var(--border);
+  display: none;
+}
+#result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#result-table thead { position: sticky; top: 0; z-index: 2; }
+#result-table th {
+  background: var(--table-header); color: var(--text-secondary); font-weight: 600;
+  padding: 8px 12px; text-align: left; cursor: pointer; white-space: nowrap;
+  border-bottom: 1px solid var(--border); user-select: none; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+  transition: background var(--transition);
+}
+#result-table th:hover { background: var(--surface-hover); color: var(--text-primary); }
+#result-table th .sort-arrow { color: var(--accent); margin-left: 4px; }
+#result-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
+  max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background var(--transition);
+}
+#result-table tbody tr { cursor: default; }
+#result-table tbody tr:hover td { background: var(--table-row-hover); }
+#result-table tbody td { user-select: none; -webkit-user-select: none; }
+#result-table tbody td.cell-selected { background: var(--table-selected) !important; }
+#result-table tbody td.cell-anchor { box-shadow: inset 0 0 0 1.5px var(--accent); }
+#result-table tbody tr:last-child td { border-bottom: none; }
+
+/* Masked table */
+.masked-section-hdr {
+  margin-top: 16px; padding-top: 12px;
+  border-top: 2px dashed var(--border);
+}
+#masked-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#masked-table thead { position: sticky; top: 0; z-index: 2; }
+#masked-table th {
+  background: var(--table-header); color: var(--text-secondary); font-weight: 600;
+  padding: 8px 12px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+#masked-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
+  max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#masked-table tbody tr:hover td { background: var(--table-row-hover); }
+#masked-table tbody tr:last-child td { border-bottom: none; }
+#masked-table .masked-col { color: var(--accent); font-family: var(--mono); font-style: italic; }
+#masked-table th.masked-col { color: var(--accent); }
+
+.result-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  padding: 60px 20px; color: var(--text-tertiary); font-size: 13px;
+  flex: 1;
+}
+.result-placeholder.error { color: var(--error); font-weight: 600; }
+
+/* ─── Text Panels ─── */
+.text-panel {
+  flex: 1; min-height: 0; background: var(--bg-2); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12px; line-height: 1.7; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+textarea.text-panel { outline: none; width: 100%; resize: none; }
+textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--input-focus); }
+
+/* ─── Split Panels ─── */
+.split-h, .split-v { display: flex; flex: 1; min-height: 0; gap: 12px; }
+.split-h { flex-direction: row; }
+.split-v { flex-direction: column; }
+.split-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+.pane-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  background: var(--surface); border: 1px solid var(--border); border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.pane-header + .text-panel { border-radius: 0 0 var(--radius) var(--radius); }
+
+.raw-border-neutral { border-color: var(--border); }
+.raw-border-success { border-color: var(--success); }
+.raw-border-warning { border-color: var(--warning); }
+.raw-border-error { border-color: var(--error); }
+
+/* ─── Section Header ─── */
+.section-header { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; }
+.section-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Status Bar
+   ═══════════════════════════════════════════════════════════════ */
+
+#status-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 20px; font-size: 11px; background: var(--bg-1);
+  border-top: 1px solid var(--border-subtle);
+}
+#status-bar .main { font-weight: 600; color: var(--text-secondary); }
+#status-bar .meta { color: var(--text-tertiary); display: flex; gap: 16px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Settings Tab
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-scroll { overflow-y: auto; height: 100%; padding: 16px 20px; }
+.settings-grid { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+.settings-section {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px 14px; background: var(--surface);
+}
+.settings-section legend {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-tertiary); padding: 0 6px;
+}
+
+.settings-field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.settings-field:first-of-type { margin-top: 4px; }
+
+.settings-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.settings-hint { font-size: 11px; color: var(--text-tertiary); font-style: italic; }
+
+.settings-input {
+  background: var(--input-bg); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); padding: 7px 10px; color: var(--text-primary);
+  font-size: 13px; font-family: inherit; width: 100%;
+  transition: border-color var(--transition);
+}
+.settings-input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.settings-textarea { resize: vertical; min-height: 40px; font-family: inherit; line-height: 1.4; }
+.settings-input-short { max-width: 140px; }
+
+.settings-input-wrap { display: flex; gap: 6px; align-items: center; }
+.settings-input-wrap .settings-input { flex: 1; }
+.settings-eye { flex-shrink: 0; }
+
+.settings-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.settings-row .settings-field { flex: 1; min-width: 140px; }
+
+.settings-check-wrap { flex-direction: row; align-items: center; gap: 8px; margin-top: 14px; }
+.settings-check-wrap input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+.settings-actions {
+  display: flex; gap: 10px; padding-top: 4px; flex-wrap: wrap;
+}
+.settings-import-label { cursor: pointer; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Toast
+   ═══════════════════════════════════════════════════════════════ */
+
+.toast {
+  position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-3); color: var(--text-primary);
+  border: 1px solid var(--border); box-shadow: var(--shadow-lg);
+  padding: 10px 20px; border-radius: var(--radius); font-size: 12px; font-weight: 500;
+  opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none; z-index: 100; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.tab-panel.active { animation: fadeIn 0.15s ease-out; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="app">
+
+  <!-- ══════ Header ══════ -->
+  <div id="header" class="panel">
+    <div class="logo">
+      <div class="logo-icon">TG</div>
+      <span class="logo-text">Trusted Gateway</span>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="header-fields">
+      <div class="header-field field-url">
+        <input type="text" id="url" placeholder="MCP URL">
+      </div>
+      <div class="header-field field-token">
+        <input type="password" id="token" placeholder="Ключ">
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span id="conn-dot" class="conn-dot fail" title="Не подключено"></span>
+      <button class="btn btn-primary" onclick="doConnect()">Подключить</button>
+      <button class="btn btn-ghost" onclick="doClearSession()">Сброс</button>
+      <!-- Bridge Secret hidden — MCP server used instead -->
+      <span class="bridge-addr" id="bridge-addr" style="display:none"></span>
+      <code id="bridge-secret-text" style="display:none">—</code>
+      <div class="divider-v"></div>
+      <button class="btn btn-icon" onclick="setTheme('light')" title="Светлая тема">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+      <button class="btn btn-icon" onclick="setTheme('dark')" title="Тёмная тема">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════ Masking fields (session) ══════ -->
+  <div id="mask-bar" class="panel mask-bar">
+    <div class="mask-field">
+      <span class="mask-label">Белый список (не шифровать):</span>
+      <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не шифровать (через запятую)..." oninput="onAllowPlainInput()"></textarea>
+    </div>
+    <label class="skip-numeric-label" title="Не шифровать значения, которые выглядят как настоящие числа (суммы, количества, цены). Номера документов, телефоны и прочие цифровые идентификаторы продолжат шифроваться.">
+      <input type="checkbox" id="skip-numeric-cb" onchange="onSkipNumericChange()">
+      <span class="mask-label" style="padding-top:0; cursor:pointer;">Числовые значения</span>
+    </label>
+    <textarea id="force-mask" style="display:none"></textarea>
+  </div>
+
+  <!-- ══════ Toolbar ══════ -->
+  <div id="toolbar" class="panel">
+    <button class="tab-btn active" onclick="showTab('raw',this)">MCP</button>
+    <button class="tab-btn" onclick="showTab('result',this)">Результат</button>
+    <button class="tab-btn" onclick="showTab('analysis',this)">Анализ данных от агента</button>
+    <button class="tab-btn" onclick="showTab('settings',this)">&#9881; Настройки</button>
+    <span id="task-text">Ожидаю задачу от контроллера</span>
+    <span id="meta-session" class="meta-pill" style="display:none"></span>
+    <div id="query-state" class="state-badge sb-idle"><span class="dot"></span><span class="state-label">Ожидание</span></div>
+  </div>
+
+  <!-- ══════ Content ══════ -->
+  <div id="content" class="panel">
+
+    <!-- Tab: Result -->
+    <div id="tab-result" class="tab-panel">
+      <div id="result-actions">
+        <div class="search-wrap">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" id="result-filter" placeholder="Поиск по всем полям..." oninput="onSearchInput()">
+          <span class="search-clear" id="search-clear" onclick="clearSearch()" title="Очистить поиск">✕</span>
+        </div>
+        <button class="btn btn-ghost btn-xs" onclick="addFilterRow()" title="Добавить фильтр по полю">+ Фильтр</button>
+        <button class="btn btn-ghost btn-xs" onclick="clearFilter()">Сбросить</button>
+        <span class="row-count" id="row-count"></span>
+        <button class="btn btn-ghost btn-xs" onclick="copyAllRows()">Копировать все</button>
+        <button class="btn btn-ghost btn-xs" onclick="copyCellSelection()">Выделение</button>
+        <span style="flex-grow:1"></span>
+        <span id="send-mode-wrap" style="display:flex; align-items:center; gap:6px; font-size:12px;">
+          <span style="color:var(--text-tertiary)">Режим:</span>
+          <button class="btn btn-ghost btn-xs" id="mode-auto-btn" onclick="setSendMode(true)" title="Агент получает данные сразу без предварительной проверки. Шифруется всё, кроме белого списка">Авто</button>
+          <button class="btn btn-ghost btn-xs" id="mode-manual-btn" onclick="setSendMode(false)" title="Данные отправляются агенту только после вашей проверки">Ручной</button>
+          <span id="rate-limit-warning" style="display:none; color:#ff6b6b; font-size:11px; font-weight:600; margin-left:4px;"></span>
+        </span>
+        <button class="btn btn-primary btn-xs" id="approve-send-btn" style="visibility:hidden" onclick="doApproveSend()">&#9654; Отправить агенту</button>
+      </div>
+      <div id="filter-rows"></div>
+      <div id="unmasked-info-result" class="mask-info" style="display:none; padding:4px 8px;">
+        <span class="mask-label">Поля:</span>
+        <span id="unmasked-cols-result" class="unmasked-tags"></span>
+        <span class="field-legend">
+          <span class="field-legend-item"><span class="field-legend-dot" style="background:var(--success)"></span> разрешено</span>
+          <span class="field-legend-item"><span class="field-legend-dot" style="background:var(--warning)"></span> шифруется</span>
+        </span>
+      </div>
+      <div id="excluded-info-result" class="mask-info" style="display:none; padding:4px 8px;">
+        <span class="mask-label">Исключены:</span>
+        <span id="excluded-cols-result" class="unmasked-tags"></span>
+      </div>
+      <div class="truncation-banner" id="truncation-banner"></div>
+      <div class="table-wrap" id="result-table-wrap">
+        <table id="result-table"><thead><tr></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="result-placeholder" id="result-placeholder">Результат появится здесь после выполнения запроса</div>
+
+      <!-- masked data merged into main table -->
+    </div>
+
+    <!-- Bundle tab removed — controls moved to Result tab -->
+
+    <!-- Tab: Analysis -->
+    <div id="tab-analysis" class="tab-panel">
+      <div class="split-v">
+        <div class="split-pane">
+          <div class="pane-header">Анализ от агента (aliases) <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('masked')">Копировать</button></div>
+          <div class="text-panel" id="analysis-masked"></div>
+        </div>
+        <div class="split-pane">
+          <div class="pane-header">Расшифрованный анализ <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('display')">Копировать</button></div>
+          <div class="text-panel" id="analysis-display"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Raw (MCP) -->
+    <div id="tab-raw" class="tab-panel active">
+      <div class="split-h" style="flex:1; min-height:0;">
+        <div class="split-pane" style="flex:0 0 40%; max-width:40%; display:flex; flex-direction:column;">
+          <div class="pane-header">Запрос</div>
+          <textarea id="query-input" style="flex:1; resize:none; margin:0; border-radius:0; border:none; border-top:1px solid var(--border); font-family:var(--font-mono); font-size:13px; padding:8px; background:var(--bg-panel); color:var(--text-primary);" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
+          <div class="query-actions" style="padding:6px 0; display:flex; gap:6px;">
+            <button class="btn btn-primary" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос с маскировкой данных">&#9654; Выполнить</button>
+            <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
+          </div>
+        </div>
+        <div class="split-pane" style="flex:1; min-height:0;">
+          <div class="pane-header" id="raw-response-label">Ответ MCP</div>
+          <div class="text-panel" id="raw-response"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Settings -->
+    <div id="tab-settings" class="tab-panel">
+      <div class="settings-scroll">
+        <div class="settings-grid">
+
+          <fieldset class="settings-section">
+            <legend>MCP Сервер</legend>
+            <label class="settings-field">
+              <span class="settings-label">URL сервера</span>
+              <input type="text" id="s-mcp-url" class="settings-input" placeholder="http://server:3080/work/hs/mcp/">
+            </label>
+            <label class="settings-field">
+              <span class="settings-label">Ключ авторизации</span>
+              <div class="settings-input-wrap">
+                <input type="password" id="s-mcp-token" class="settings-input" placeholder="Введите ключ или оставьте пустым">
+                <button type="button" class="btn btn-ghost btn-xs settings-eye" onclick="toggleTokenVis()">&#128065;</button>
+              </div>
+              <span class="settings-hint" id="s-token-hint" style="display:none">Текущий ключ сохранён. Оставьте поле пустым, чтобы не менять.</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Маскирование полей</legend>
+            <span class="settings-hint" style="margin-bottom:6px;display:block">Политика: <b>все поля шифруются по умолчанию</b>. Только перечисленные ниже поля и поля, содержащие ключевые слова (<span id="s-keywords-hint"></span>), передаются открыто.</span>
+            <label class="settings-field">
+              <span class="settings-label">Не шифровать (через запятую)</span>
+              <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
+              <span class="settings-hint">Эти поля будут передаваться агенту открыто.</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="settings-section">
+            <legend>Параметры</legend>
+            <div class="settings-row">
+              <label class="settings-field">
+                <span class="settings-label">Превью результата (символов)</span>
+                <input type="number" id="s-preview-chars" class="settings-input settings-input-short" min="100" step="100">
+              </label>
+              <label class="settings-field settings-check-wrap">
+                <input type="checkbox" id="s-auto-send">
+                <span class="settings-label">Авто-режим (отправлять данные агенту без подтверждения)</span>
+              </label>
+              <label class="settings-field settings-check-wrap">
+                <input type="checkbox" id="s-skip-numeric">
+                <span class="settings-label">Не шифровать числовые значения (суммы, количества, цены)</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="settings-actions">
+            <button class="btn btn-primary" onclick="saveSettings()">&#128190; Сохранить</button>
+            <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
+            <button class="btn btn-ghost" onclick="exportSettings()">&#128228; Экспорт</button>
+            <label class="btn btn-ghost settings-import-label">
+              &#128229; Импорт
+              <input type="file" id="s-import-file" accept=".json" style="display:none" onchange="importSettings(this)">
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════ Status Bar ══════ -->
+  <div id="status-bar">
+    <span class="main" id="status-text">Готово</span>
+    <span class="meta">
+      <span id="status-security"></span>
+      <span id="status-session"></span>
+      <span id="status-bridge"></span>
+    </span>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const TOKEN = "{{SESSION_TOKEN}}";
+let appState = { version: 0 };
+let resultRows = [];
+let resultHeaders = [];
+let maskedRows = [];
+let maskedHeaders = [];
+let maskedColumns = [];
+let tagAllowSet = new Set();   // fields opened via tag clicks (separate from textarea)
+let tagForceSet = new Set();   // fields force-masked via tag clicks
+let sortColumn = null;
+let sortReverse = false;
+
+// Virtual scroll state
+let filteredRows = [];       // current filtered+sorted view (indices or rows)
+let filteredMaskedRows = []; // parallel masked rows for filtered view
+let filteredIndices = [];    // original row indices for filtered view (for agent send)
+let displayCols = [];        // column descriptors
+let vsRowHeight = 30;        // estimated row height in px
+let vsVisibleCount = 50;     // rows to render
+let vsScrollTop = 0;
+let stableColumnOrder = [];   // fixed order for field tags (no re-sorting on click)
+let lastDataVersion = -1;     // tracks server data_version for row refresh
+let lastQueryVersion = -1;   // tracks server query_version — resets when new query arrives (not remask)
+let vsRenderStart = 0;
+let vsRenderEnd = 0;
+let vsTicking = false;
+let rowDataVersion = 0;      // tracks when row data changes
+
+// ─── API ─────────────────────────────────────────────────────────────
+
+async function api(path, body, timeoutMs) {
+  const opts = { headers: { "X-Session-Token": TOKEN } };
+  if (body !== undefined) {
+    opts.method = "POST";
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  if (timeoutMs) {
+    const ctrl = new AbortController();
+    opts.signal = ctrl.signal;
+    setTimeout(() => ctrl.abort(), timeoutMs);
+  }
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+// ─── SSE ─────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  const es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.version !== appState.version) fetchState();
+  };
+  es.onerror = () => { setTimeout(connectSSE, 3000); es.close(); };
+}
+
+let fetchingRows = false;
+async function fetchState() {
+  try {
+    const s = await api("/api/state");
+    const newRowCount = (s.result && s.result.row_count) || 0;
+    const newDataVersion = s.data_version || 0;
+    const newQueryVersion = s.query_version || 0;
+    // Reset tag overrides BEFORE render so tags draw in correct (encrypted) state
+    if (newQueryVersion !== lastQueryVersion) {
+      tagAllowSet.clear();
+      tagForceSet.clear();
+      stableColumnOrder = [];
+      updateAllowPlainHighlight();
+      lastQueryVersion = newQueryVersion;
+    }
+    appState = s;
+    render(s);
+    // Fetch rows when data version changed (remask, new query, etc.) or initial load
+    if ((newDataVersion !== lastDataVersion || (newRowCount > 0 && resultRows.length === 0)) && !fetchingRows) {
+      lastDataVersion = newDataVersion;
+      await fetchAllRows();
+    }
+  } catch (e) { console.error("fetchState:", e); }
+}
+
+async function fetchAllRows() {
+  const total = (appState.result && appState.result.row_count) || 0;
+  if (total === 0) {
+    resultRows = []; maskedRows = []; resultHeaders = []; maskedHeaders = [];
+    maskedColumns = [];
+    rowDataVersion++;
+    rebuildFilterColumns();
+    applyResultView();
+    return;
+  }
+  fetchingRows = true;
+  try {
+    // Fetch all rows in chunks (server-side pagination for transport)
+    const chunkSize = 2000;
+    let allRows = [], allMasked = [];
+    for (let offset = 0; offset < total; offset += chunkSize) {
+      const r = await api("/api/rows?offset=" + offset + "&limit=" + chunkSize);
+      if (!r || !r.rows) break;
+      allRows = allRows.concat(r.rows);
+      allMasked = allMasked.concat(r.masked_rows || []);
+      if (offset === 0) {
+        resultHeaders = r.headers || [];
+        maskedHeaders = r.masked_headers || [];
+        maskedColumns = r.masked_columns || [];
+      }
+    }
+    resultRows = allRows;
+    maskedRows = allMasked;
+    rowDataVersion++;
+    rebuildFilterColumns();
+    applyResultView();
+    updateApproveBtn();
+  } finally {
+    fetchingRows = false;
+  }
+}
+
+// ─── Render ──────────────────────────────────────────────────────────
+
+function render(s) {
+  // Connection dot
+  const dot = document.getElementById("conn-dot");
+  if (s.connection.verified) {
+    dot.className = "conn-dot ok";
+    dot.title = "Подключено";
+  } else {
+    dot.className = "conn-dot fail";
+    dot.title = "Не подключено";
+  }
+
+  // URL field (set once)
+  const urlEl = document.getElementById("url");
+  if (s.connection.url && !urlEl.value) urlEl.value = s.connection.url;
+
+  // Token hint — show placeholder if saved token exists
+  const tokenEl = document.getElementById("token");
+  if (s.has_saved_token && !tokenEl.value) {
+    tokenEl.placeholder = "Сохранённый ключ (\u2022\u2022\u2022)";
+  }
+
+  // Per-session mask fields — never prefill from defaults (they merge on backend)
+
+  // Session meta
+  const metaEl = document.getElementById("meta-session");
+  if (s.session_id) {
+    metaEl.textContent = s.session_id + " \u00b7 " + (s.mode || "direct");
+    metaEl.style.display = "";
+  } else {
+    metaEl.style.display = "none";
+  }
+
+  // Task
+  document.getElementById("task-text").textContent = s.task || "Ожидаю задачу от контроллера";
+
+  // Query state badge
+  const qs = document.getElementById("query-state");
+  qs.className = "state-badge sb-" + s.query_state;
+  qs.querySelector(".state-label").textContent = s.query_state_text;
+
+  // Cancel button visibility & query buttons enabled state
+  const cancelBtn = document.getElementById("cancel-btn");
+  if (cancelBtn) cancelBtn.style.display = s.query_state === "running" ? "" : "none";
+  if (s.query_state !== "running") {
+    document.getElementById("btn-query-masked").disabled = false;
+  }
+
+  // Truncation banner
+  const truncBanner = document.getElementById("truncation-banner");
+  if (s.rows_truncated) {
+    truncBanner.textContent = "Результат обрезан: показано " + (s.result.row_count || 0) + " из " + (s.total_row_count || "?") + " строк (лимит: " + (s.max_rows || "?") + ")";
+    truncBanner.style.display = "";
+  } else {
+    truncBanner.style.display = "none";
+  }
+
+  // Placeholder (rows are fetched separately via /api/rows)
+  if (s.result.placeholder && s.result.row_count === 0) showPlaceholder(s.result.placeholder, s.result.placeholder_error);
+
+  // Analysis
+  document.getElementById("analysis-masked").textContent = s.analysis_masked || "";
+  document.getElementById("analysis-display").textContent = s.analysis_display || "";
+
+  // Raw
+  // Sync query input from server (agent-submitted query) — don't overwrite if user is typing
+  const queryInputEl = document.getElementById("query-input");
+  const serverQuery = s.query_preview || "";
+  if (serverQuery && queryInputEl !== document.activeElement && queryInputEl.value !== serverQuery) {
+    queryInputEl.value = serverQuery;
+  }
+  const rawEl = document.getElementById("raw-response");
+  rawEl.textContent = s.raw_response || "";
+  rawEl.className = "text-panel raw-border-" + (s.raw_state || "neutral");
+
+  // Status bar
+  document.getElementById("status-text").textContent = s.status || "Готово";
+  document.getElementById("status-security").textContent = s.security_hint || "";
+  document.getElementById("status-session").textContent = s.session_id ? "ID: " + s.session_id : "";
+  document.getElementById("status-bridge").textContent = s.bridge_info || "";
+
+  // Bridge address on MCP tab (secret loaded separately via /api/bridge_secret)
+  document.getElementById("bridge-addr").textContent = s.bridge_info || "";
+
+  // Sync persistent whitelist textarea from server (don't overwrite if user is actively typing)
+  const allowPlainEl = document.getElementById("allow-plain");
+  const serverAllowPlain = s.persistent_allow_plain || "";
+  if (allowPlainEl !== document.activeElement && allowPlainEl.value !== serverAllowPlain) {
+    allowPlainEl.value = serverAllowPlain;
+    updateAllowPlainHighlight();
+  }
+
+  // Sync skip-numeric checkbox
+  const skipNumericCb = document.getElementById("skip-numeric-cb");
+  if (skipNumericCb.checked !== !!s.skip_numeric_values) {
+    skipNumericCb.checked = !!s.skip_numeric_values;
+  }
+
+  // Unmasked/masked columns indicator — render into both tabs
+  const unmaskedCols = (s.masked_result && s.masked_result.unmasked_columns) || [];
+  const maskedCols = (s.masked_result && s.masked_result.masked_columns) || [];
+  const excludedRaw = s.excluded_fields || "";
+  const excludedList = excludedRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+  // Build stable column order
+  if (unmaskedCols.length > 0 || maskedCols.length > 0) {
+    const allCols = [...unmaskedCols, ...maskedCols];
+    const allSet = new Set(allCols);
+    allCols.forEach(col => { if (!stableColumnOrder.includes(col)) stableColumnOrder.push(col); });
+    stableColumnOrder = stableColumnOrder.filter(col => allSet.has(col));
+  } else {
+    stableColumnOrder = [];
+  }
+
+  const unmaskedSet = new Set(unmaskedCols);
+  const excludedSet = new Set(excludedList.map(s => s.toLowerCase()));
+  // Render field tags into a container
+  function renderFieldTags(container) {
+    container.innerHTML = "";
+    stableColumnOrder.forEach(col => {
+      if (excludedSet.has(col.toLowerCase())) return; // skip excluded fields
+      const isUnmasked = unmaskedSet.has(col);
+      const tag = document.createElement("span");
+      tag.className = isUnmasked ? "unmasked-tag" : "masked-col-tag";
+      if (isUnmasked) tag.style.cursor = "pointer";
+      tag.textContent = col;
+      tag.title = isUnmasked
+        ? "Передаётся открыто. Нажмите, чтобы зашифровать"
+        : "Зашифровано. Нажмите, чтобы разрешить передачу открыто";
+      tag.onclick = isUnmasked ? () => reMaskField(col) : () => allowField(col);
+      container.appendChild(tag);
+      const x = document.createElement("span");
+      x.className = "exclude-x";
+      x.textContent = "✕";
+      x.title = "Исключить поле из выборки";
+      x.onclick = () => excludeField(col);
+      container.appendChild(x);
+    });
+  }
+  function renderExcludedTags(container) {
+    container.innerHTML = "";
+    excludedList.forEach(col => {
+      const tag = document.createElement("span");
+      tag.className = "excluded-col-tag";
+      tag.textContent = col + " ↩";
+      tag.title = "Исключено. Нажмите, чтобы вернуть поле";
+      tag.onclick = () => restoreField(col);
+      container.appendChild(tag);
+    });
+  }
+
+  // Result tab — field tags (hide when auto-send is on — agent gets all fields anyway)
+  const autoSendOn = !!s.auto_send_to_agent;
+  const unmaskedInfoR = document.getElementById("unmasked-info-result");
+  if (stableColumnOrder.length > 0 && !autoSendOn) {
+    unmaskedInfoR.style.display = "";
+    renderFieldTags(document.getElementById("unmasked-cols-result"));
+  } else { unmaskedInfoR.style.display = "none"; }
+
+  const excludedInfoR = document.getElementById("excluded-info-result");
+  if (excludedList.length > 0 && !autoSendOn) {
+    excludedInfoR.style.display = "";
+    renderExcludedTags(document.getElementById("excluded-cols-result"));
+  } else { excludedInfoR.style.display = "none"; }
+
+  // Mode toggle buttons
+  const manualBtn = document.getElementById("mode-manual-btn");
+  const autoBtn = document.getElementById("mode-auto-btn");
+  if (manualBtn && autoBtn) {
+    manualBtn.classList.toggle("mode-active", !autoSendOn);
+    autoBtn.classList.toggle("mode-active", autoSendOn);
+  }
+
+  // Rate limit warning
+  const rlWarn = document.getElementById("rate-limit-warning");
+  if (rlWarn) {
+    if (s.rate_limit_triggered && s.rate_limit_message) {
+      rlWarn.textContent = s.rate_limit_message;
+      rlWarn.style.display = "";
+    } else {
+      rlWarn.style.display = "none";
+    }
+  }
+
+  updateApproveBtn();
+}
+
+function updateApproveBtn() {
+  const approveBtn = document.getElementById("approve-send-btn");
+  if (!approveBtn) return;
+  const autoSendOn = !!(appState && appState.auto_send_to_agent);
+  const hasResultData = resultRows.length > 0;
+  approveBtn.style.visibility = (hasResultData && !autoSendOn) ? "visible" : "hidden";
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────
+
+function showTab(name, btn) {
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  const panel = document.getElementById("tab-" + name);
+  if (panel) panel.classList.add("active");
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  if (btn) { btn.classList.add("active"); }
+  else {
+    const btns = document.querySelectorAll("#toolbar .tab-btn");
+    const map = { raw: 0, result: 1, analysis: 2, settings: 3 };
+    if (map[name] !== undefined && btns[map[name]]) btns[map[name]].classList.add("active");
+  }
+  if (name === "settings") loadSettingsForm();
+  if (name === "raw") loadBridgeSecret();
+}
+
+// ─── Result Table ────────────────────────────────────────────────────
+
+function rebuildFilterColumns() {
+  // Update column options in all existing filter rows
+  document.querySelectorAll(".filter-row select.filter-col").forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = "";
+    resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; sel.appendChild(o); });
+    if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  });
+}
+
+function addFilterRow(col, op, val) {
+  const container = document.getElementById("filter-rows");
+  const row = document.createElement("div");
+  row.className = "filter-row";
+
+  const colSel = document.createElement("select");
+  colSel.className = "filter-col";
+  resultHeaders.forEach(h => { const o = document.createElement("option"); o.textContent = h; colSel.appendChild(o); });
+  if (col && [...colSel.options].some(o => o.value === col)) colSel.value = col;
+  colSel.onchange = () => applyResultView();
+
+  const opSel = document.createElement("select");
+  opSel.className = "filter-op";
+  ["содержит", "не содержит", "=", "!=", ">", ">=", "<", "<="].forEach(o => {
+    const opt = document.createElement("option"); opt.textContent = o; opSel.appendChild(opt);
+  });
+  if (op) opSel.value = op;
+  opSel.onchange = () => applyResultView();
+
+  const valInp = document.createElement("input");
+  valInp.className = "filter-val";
+  valInp.type = "text";
+  valInp.placeholder = "значение";
+  if (val) valInp.value = val;
+  valInp.oninput = () => applyResultView();
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "btn-remove";
+  removeBtn.innerHTML = "&times;";
+  removeBtn.title = "Удалить фильтр";
+  removeBtn.onclick = () => { row.remove(); applyResultView(); };
+
+  row.append(colSel, opSel, valInp, removeBtn);
+  container.appendChild(row);
+  applyResultView();
+}
+
+function parseNumericValue(text) {
+  if (text == null || text === "") return NaN;
+  // Normalize: remove spaces, replace comma with dot
+  const s = String(text).trim().replace(/\s/g, "").replace(",", ".");
+  const n = parseFloat(s);
+  // Ensure the whole string is a number (not "123abc")
+  return isNaN(n) ? NaN : n;
+}
+
+function getActiveFilters() {
+  const filters = [];
+  document.querySelectorAll(".filter-row").forEach(row => {
+    const col = row.querySelector(".filter-col")?.value;
+    const op = row.querySelector(".filter-op")?.value;
+    const val = row.querySelector(".filter-val")?.value ?? "";
+    if (col && val !== "") filters.push({ col, op, val });
+  });
+  return filters;
+}
+
+function matchesFilter(row, mrow, filter) {
+  const cellText = toText(row[filter.col]);
+  const maskedText = mrow ? toText(mrow[filter.col]) : "";
+  const valLower = filter.val.toLowerCase();
+
+  switch (filter.op) {
+    case "содержит":
+      return cellText.toLowerCase().includes(valLower) ||
+             maskedText.toLowerCase().includes(valLower);
+    case "не содержит":
+      return !cellText.toLowerCase().includes(valLower) &&
+             !maskedText.toLowerCase().includes(valLower);
+    case "=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (!isNaN(nCell) && !isNaN(nVal)) return nCell === nVal;
+      return cellText.toLowerCase() === valLower || maskedText.toLowerCase() === valLower;
+    }
+    case "!=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (!isNaN(nCell) && !isNaN(nVal)) return nCell !== nVal;
+      return cellText.toLowerCase() !== valLower && maskedText.toLowerCase() !== valLower;
+    }
+    case ">": case ">=": case "<": case "<=": {
+      const nCell = parseNumericValue(cellText);
+      const nVal = parseNumericValue(filter.val);
+      if (isNaN(nCell) || isNaN(nVal)) return false;
+      if (filter.op === ">") return nCell > nVal;
+      if (filter.op === ">=") return nCell >= nVal;
+      if (filter.op === "<") return nCell < nVal;
+      return nCell <= nVal;
+    }
+    default: return true;
+  }
+}
+
+function applyResultView() {
+  cellAnchor = null; cellRange = null; cellDragging = false;
+  const filterText = (document.getElementById("result-filter").value || "").trim().toLowerCase();
+  const columnFilters = getActiveFilters();
+
+  // Build filtered index array (keeps original indices for masked row lookup)
+  let indices = resultRows.map((_, i) => i);
+
+  // Quick text search across all fields
+  if (filterText) {
+    indices = indices.filter(i => {
+      const row = resultRows[i];
+      const mrow = maskedRows[i];
+      return resultHeaders.some(h => {
+        if (toText(row[h]).toLowerCase().includes(filterText)) return true;
+        if (mrow && toText(mrow[h]).toLowerCase().includes(filterText)) return true;
+        return false;
+      });
+    });
+  }
+
+  // Column-specific filters (AND logic)
+  if (columnFilters.length) {
+    indices = indices.filter(i => {
+      const row = resultRows[i];
+      const mrow = maskedRows[i];
+      return columnFilters.every(f => matchesFilter(row, mrow, f));
+    });
+  }
+
+  if (sortColumn !== null) {
+    indices.sort((a, b) => {
+      const va = sortKey(resultRows[a][sortColumn]), vb = sortKey(resultRows[b][sortColumn]);
+      let cmp = va[0] !== vb[0] ? va[0] - vb[0] : va[1] < vb[1] ? -1 : va[1] > vb[1] ? 1 : 0;
+      return sortReverse ? -cmp : cmp;
+    });
+  }
+
+  // Store for virtual scroll renderer
+  filteredIndices = indices;
+  filteredRows = indices.map(i => resultRows[i]);
+  filteredMaskedRows = indices.map(i => maskedRows[i] || null);
+
+  const table = document.getElementById("result-table");
+  const thead = table.querySelector("thead tr");
+  const ph = document.getElementById("result-placeholder");
+  const wrap = document.getElementById("result-table-wrap");
+  const rc = document.getElementById("row-count");
+
+  if (!resultRows.length) {
+    wrap.style.display = "none";
+    ph.style.display = ""; ph.textContent = "Результат появится здесь после выполнения запроса";
+    ph.className = "result-placeholder";
+    rc.textContent = "";
+    return;
+  }
+
+  // Build interleaved column list: for masked columns insert alias column right after real one
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
+  displayCols = [];  // {header, isMasked, srcHeader}
+  resultHeaders.forEach(h => {
+    displayCols.push({ header: h, isMasked: false, srcHeader: h });
+    if (hasMasked && maskedColumns.includes(h)) {
+      displayCols.push({ header: h + " (шифр)", isMasked: true, srcHeader: h });
+    }
+  });
+
+  thead.innerHTML = "";
+  displayCols.forEach(col => {
+    const th = document.createElement("th");
+    th.textContent = col.header;
+    if (col.isMasked) th.classList.add("masked-col");
+    if (col.header === sortColumn) {
+      const arrow = document.createElement("span");
+      arrow.className = "sort-arrow";
+      arrow.textContent = sortReverse ? " \u2193" : " \u2191";
+      th.appendChild(arrow);
+    }
+    if (!col.isMasked) th.onclick = () => toggleSort(col.header);
+    thead.appendChild(th);
+  });
+
+  if (!filteredRows.length) {
+    wrap.style.display = "none";
+    ph.style.display = ""; ph.textContent = "По фильтру ничего не найдено";
+    ph.className = "result-placeholder";
+    rc.textContent = "0 из " + resultRows.length;
+    return;
+  }
+
+  ph.style.display = "none";
+  wrap.style.display = "";
+  rc.textContent = filteredRows.length === resultRows.length ? filteredRows.length + " строк" : filteredRows.length + " из " + resultRows.length;
+
+  // Initialize virtual scroll
+  vsRenderStart = -1; // force re-render
+  wrap.scrollTop = 0;
+  vsScrollTop = 0;
+  renderVisibleRows();
+}
+
+// ─── Virtual Scroll ──────────────────────────────────────────────────
+
+function renderVisibleRows() {
+  const wrap = document.getElementById("result-table-wrap");
+  const tbody = document.querySelector("#result-table tbody");
+  if (!tbody || !filteredRows.length || !displayCols.length) return;
+
+  const totalRows = filteredRows.length;
+  const scrollTop = wrap.scrollTop;
+  const wrapHeight = wrap.clientHeight || 400; // fallback if not yet laid out
+
+  // Account for thead height in scroll calculations
+  const thead = document.querySelector("#result-table thead");
+  const theadH = thead ? thead.offsetHeight : 0;
+
+  // Calculate visible range
+  const effectiveScroll = Math.max(0, scrollTop - theadH);
+  const startIdx = Math.max(0, Math.floor(effectiveScroll / vsRowHeight) - 5);
+  const endIdx = Math.min(totalRows, Math.ceil((effectiveScroll + wrapHeight) / vsRowHeight) + 5);
+
+  // Skip re-render if same range (but always render if forced via vsRenderStart === -1)
+  if (vsRenderStart >= 0 && startIdx === vsRenderStart && endIdx === vsRenderEnd) return;
+  vsRenderStart = startIdx;
+  vsRenderEnd = endIdx;
+
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
+  const fragment = document.createDocumentFragment();
+
+  // Top spacer row
+  if (startIdx > 0) {
+    const topSpacer = document.createElement("tr");
+    topSpacer.style.height = (startIdx * vsRowHeight) + "px";
+    topSpacer.className = "vs-spacer";
+    fragment.appendChild(topSpacer);
+  }
+
+  // Visible rows
+  for (let ri = startIdx; ri < endIdx; ri++) {
+    const row = filteredRows[ri];
+    if (!row) continue;
+    const maskedRow = hasMasked ? filteredMaskedRows[ri] : null;
+    const tr = document.createElement("tr");
+    for (let ci = 0; ci < displayCols.length; ci++) {
+      const col = displayCols[ci];
+      const td = document.createElement("td");
+      let v;
+      if (col.isMasked) {
+        v = maskedRow ? toText(maskedRow[col.srcHeader]) : "";
+        td.classList.add("masked-col");
+      } else {
+        v = toText(row[col.srcHeader]);
+      }
+      td.textContent = v;
+      td.title = v;
+      td.dataset.r = ri;
+      td.dataset.c = ci;
+      td.onmousedown = (e) => cellMouseDown(e, ri, ci);
+      td.onmouseover = (e) => { if (e.buttons === 1 && cellDragging) cellDragTo(ri, ci); };
+      tr.appendChild(td);
+    }
+    fragment.appendChild(tr);
+  }
+
+  // Bottom spacer row
+  const bottomH = (totalRows - endIdx) * vsRowHeight;
+  if (bottomH > 0) {
+    const bottomSpacer = document.createElement("tr");
+    bottomSpacer.style.height = bottomH + "px";
+    bottomSpacer.className = "vs-spacer";
+    fragment.appendChild(bottomSpacer);
+  }
+
+  tbody.innerHTML = "";
+  tbody.appendChild(fragment);
+
+  // Restore cell selection highlight after DOM rebuild
+  if (cellRange) paintCellSelection();
+}
+
+// Attach scroll listener once
+(function() {
+  const wrap = document.getElementById("result-table-wrap");
+  if (wrap) {
+    wrap.addEventListener("scroll", () => {
+      if (!vsTicking) {
+        vsTicking = true;
+        requestAnimationFrame(() => {
+          renderVisibleRows();
+          vsTicking = false;
+        });
+      }
+    }, { passive: true });
+  }
+})();
+
+// renderMaskedTable removed — masked data merged into main table
+
+// ─── Virtual text rendering for Bundle tab ───────────────────────────
+function showPlaceholder(text, isError) {
+  const ph = document.getElementById("result-placeholder");
+  const wrap = document.getElementById("result-table-wrap");
+  ph.textContent = text;
+  ph.className = "result-placeholder" + (isError ? " error" : "");
+  ph.style.display = "";
+  wrap.style.display = "none";
+}
+
+function toggleSort(col) {
+  if (sortColumn === col) sortReverse = !sortReverse;
+  else { sortColumn = col; sortReverse = false; }
+  applyResultView();
+}
+
+function sortKey(val) {
+  if (val == null) return [2, ""];
+  const s = String(val).replace(/\u00A0/g, "").replace(/ /g, "").replace(",", ".");
+  const n = parseFloat(s);
+  if (!isNaN(n)) return [0, n];
+  return [1, String(val).toLowerCase()];
+}
+
+// ─── Cell selection (Excel-like) ─────────────────────────────────
+let cellAnchor = null;   // {r, c}
+let cellRange = null;    // {r1, c1, r2, c2}
+let cellDragging = false;
+
+function cellMouseDown(e, r, c) {
+  e.preventDefault();
+  // Blur any focused input so Ctrl+C works on table
+  if (document.activeElement && document.activeElement.tagName === "INPUT") document.activeElement.blur();
+  if (e.shiftKey && cellAnchor) {
+    cellRange = makeRange(cellAnchor.r, cellAnchor.c, r, c);
+    cellDragging = true;
+  } else {
+    cellAnchor = { r, c };
+    cellRange = makeRange(r, c, r, c);
+    cellDragging = true;
+  }
+  paintCellSelection();
+}
+
+function cellDragTo(r, c) {
+  if (!cellAnchor) return;
+  cellRange = makeRange(cellAnchor.r, cellAnchor.c, r, c);
+  paintCellSelection();
+}
+
+document.addEventListener("mouseup", () => { cellDragging = false; });
+
+function makeRange(r1, c1, r2, c2) {
+  return { r1: Math.min(r1, r2), c1: Math.min(c1, c2), r2: Math.max(r1, r2), c2: Math.max(c1, c2) };
+}
+
+function paintCellSelection() {
+  const tbody = document.querySelector("#result-table tbody");
+  if (!tbody) return;
+  tbody.querySelectorAll("td.cell-selected, td.cell-anchor").forEach(td => {
+    td.classList.remove("cell-selected", "cell-anchor");
+  });
+  if (!cellRange) return;
+  // Virtual scroll: rows in DOM have dataset.r with logical row index
+  const tds = tbody.querySelectorAll("td");
+  tds.forEach(td => {
+    const ri = parseInt(td.dataset.r);
+    const ci = parseInt(td.dataset.c);
+    if (isNaN(ri) || isNaN(ci)) return;
+    if (ri >= cellRange.r1 && ri <= cellRange.r2 && ci >= cellRange.c1 && ci <= cellRange.c2) {
+      td.classList.add("cell-selected");
+    }
+    if (cellAnchor && ri === cellAnchor.r && ci === cellAnchor.c) {
+      td.classList.add("cell-anchor");
+    }
+  });
+}
+
+// Ctrl+C / Cmd+C on table (e.code works regardless of keyboard layout)
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "с")) {
+    const active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+    // Only act if result tab is active and we have data
+    const resultTab = document.getElementById("tab-result");
+    if (!resultTab || !resultTab.classList.contains("active") || !filteredRows.length) return;
+    e.preventDefault();
+    if (cellRange) {
+      copyCellSelection();
+    } else {
+      copyAllRows();
+    }
+  }
+});
+
+function onSearchInput() {
+  const v = document.getElementById("result-filter").value;
+  document.getElementById("search-clear").style.display = v ? "block" : "none";
+  applyResultView();
+}
+
+function clearSearch() {
+  document.getElementById("result-filter").value = "";
+  document.getElementById("search-clear").style.display = "none";
+  applyResultView();
+}
+
+function clearFilter() {
+  document.getElementById("result-filter").value = "";
+  document.getElementById("search-clear").style.display = "none";
+  document.getElementById("filter-rows").innerHTML = "";
+  applyResultView();
+}
+
+function toText(v) { return v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v); }
+
+// ─── Clipboard ───────────────────────────────────────────────────────
+
+function copyCellSelection() {
+  if (!cellRange) { toast("Нет выделения"); return; }
+  const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
+  const lines = [];
+  for (let ri = cellRange.r1; ri <= cellRange.r2 && ri < filteredRows.length; ri++) {
+    const row = filteredRows[ri];
+    const maskedRow = hasMasked ? filteredMaskedRows[ri] : null;
+    const vals = [];
+    for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < displayCols.length; ci++) {
+      const col = displayCols[ci];
+      if (col.isMasked) {
+        vals.push(maskedRow ? toText(maskedRow[col.srcHeader]) : "");
+      } else {
+        vals.push(toText(row[col.srcHeader]));
+      }
+    }
+    lines.push(vals.join("\t"));
+  }
+  const total = (cellRange.r2 - cellRange.r1 + 1) * (cellRange.c2 - cellRange.c1 + 1);
+  navigator.clipboard.writeText(lines.join("\n")).then(() =>
+    toast("Скопировано " + (total === 1 ? "1 ячейка" : total + " ячеек"))
+  );
+}
+
+function copyAllRows() {
+  const rows = filteredRows.length ? filteredRows : resultRows;
+  if (!rows.length) { toast("Нет данных"); return; }
+  const lines = [resultHeaders.join("\t")];
+  rows.forEach(row => lines.push(resultHeaders.map(h => toText(row[h])).join("\t")));
+  const suffix = filteredRows.length && filteredRows.length !== resultRows.length
+    ? " строк (отфильтровано)" : " строк";
+  navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Скопировано " + rows.length + suffix));
+}
+
+
+function copyAnalysis(which) {
+  const el = document.getElementById(which === "masked" ? "analysis-masked" : "analysis-display");
+  const t = el ? el.textContent : "";
+  if (!t) { toast("Нет данных для копирования"); return; }
+  navigator.clipboard.writeText(t).then(() => toast("Анализ скопирован"));
+}
+
+async function loadBridgeSecret() {
+  const el = document.getElementById("bridge-secret-text");
+  if (el.textContent && el.textContent !== "—") return;
+  try {
+    const r = await api("/api/bridge_secret");
+    if (r.bridge_secret) el.textContent = r.bridge_secret;
+  } catch (e) { /* ignore */ }
+}
+
+function copyBridgeSecret() {
+  const t = document.getElementById("bridge-secret-text").textContent;
+  if (!t || t === "—") { loadBridgeSecret(); return; }
+  navigator.clipboard.writeText(t).then(() => toast("Bridge Secret скопирован"));
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────
+
+function mergedAllowPlain() {
+  const fromTextarea = document.getElementById("allow-plain").value.split(",").map(s => s.trim()).filter(Boolean);
+  const merged = new Set(fromTextarea.map(s => s.toLowerCase()));
+  tagAllowSet.forEach(f => merged.add(f.toLowerCase()));
+  tagForceSet.forEach(f => merged.delete(f.toLowerCase()));
+  // Return original-case names
+  const result = [];
+  const seen = new Set();
+  [...fromTextarea, ...tagAllowSet].forEach(f => {
+    const lc = f.toLowerCase();
+    if (merged.has(lc) && !seen.has(lc)) { result.push(f); seen.add(lc); }
+  });
+  return result.join(", ");
+}
+
+function mergedForceMask() {
+  const fromTextarea = document.getElementById("force-mask").value.split(",").map(s => s.trim()).filter(Boolean);
+  const merged = new Set(fromTextarea.map(s => s.toLowerCase()));
+  tagForceSet.forEach(f => merged.add(f.toLowerCase()));
+  tagAllowSet.forEach(f => merged.delete(f.toLowerCase()));
+  const result = [];
+  const seen = new Set();
+  [...fromTextarea, ...tagForceSet].forEach(f => {
+    const lc = f.toLowerCase();
+    if (merged.has(lc) && !seen.has(lc)) { result.push(f); seen.add(lc); }
+  });
+  return result.join(", ");
+}
+
+function updateAllowPlainHighlight() {
+  const el = document.getElementById("allow-plain");
+  const hasValue = el.value.trim().split(",").map(s => s.trim()).filter(Boolean).length > 0;
+  el.classList.toggle("has-value", hasValue);
+}
+
+let allowPlainDebounce = null;
+function onAllowPlainInput() {
+  updateAllowPlainHighlight();
+  clearTimeout(allowPlainDebounce);
+  allowPlainDebounce = setTimeout(async () => {
+    const allowPlain = document.getElementById("allow-plain").value;
+    const forceMask = document.getElementById("force-mask").value;
+    await api("/api/set_whitelist", { allow_plain_fields: allowPlain, force_mask_fields: forceMask });
+  }, 400);
+}
+
+async function onSkipNumericChange() {
+  const enabled = document.getElementById("skip-numeric-cb").checked;
+  await api("/api/skip_numeric", { enabled });
+}
+
+async function allowField(fieldName) {
+  tagAllowSet.add(fieldName);
+  tagForceSet.delete(fieldName);
+  try {
+    const r = await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    if (r.ok) toast(fieldName + " открыто.");
+    else toast(r.error || "Перезапустите запрос.");
+    updateAllowPlainHighlight();
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function reMaskField(fieldName) {
+  tagForceSet.add(fieldName);
+  tagAllowSet.delete(fieldName);
+  try {
+    const r = await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    if (r.ok) toast(fieldName + " зашифровано.");
+    else toast(r.error || "Ошибка ремаскировки");
+    updateAllowPlainHighlight();
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function doApproveSend() {
+  try {
+    // Send filtered indices so server builds bundle from visible rows only
+    const isFiltered = filteredIndices.length !== resultRows.length;
+    const payload = isFiltered ? { filtered_indices: filteredIndices } : {};
+    const r = await api("/api/approve_send", payload);
+    if (r.ok) toast("Данные отправлены агенту" + (isFiltered ? " (" + filteredIndices.length + " строк)" : "") + ".");
+    else toast(r.error || "Ошибка");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function setSendMode(auto) {
+  try {
+    await api("/api/auto_send", { enabled: auto });
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+function getExcludedList() {
+  return (appState.excluded_fields || "").split(",").map(s => s.trim()).filter(Boolean);
+}
+
+async function excludeField(fieldName) {
+  const current = getExcludedList();
+  if (current.some(f => f.toLowerCase() === fieldName.toLowerCase())) {
+    toast(fieldName + " уже исключено");
+    return;
+  }
+  current.push(fieldName);
+  // Clean up text fields — remove excluded field from both
+  const apEl = document.getElementById("allow-plain");
+  apEl.value = apEl.value.split(",").map(s => s.trim()).filter(Boolean)
+    .filter(f => f.toLowerCase() !== fieldName.toLowerCase()).join(", ");
+  const fmEl = document.getElementById("force-mask");
+  fmEl.value = fmEl.value.split(",").map(s => s.trim()).filter(Boolean)
+    .filter(f => f.toLowerCase() !== fieldName.toLowerCase()).join(", ");
+  try {
+    const r = await api("/api/exclude_fields", { excluded_fields: current.join(", ") });
+    if (r.ok) {
+      toast(fieldName + " исключено из выборки.");
+    } else {
+      toast(r.error || "Ошибка исключения поля.");
+    }
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function restoreField(fieldName) {
+  const current = getExcludedList().filter(f => f.toLowerCase() !== fieldName.toLowerCase());
+  try {
+    const r = await api("/api/exclude_fields", { excluded_fields: current.join(", ") });
+    if (r.ok) {
+      toast(fieldName + " возвращено в выборку.");
+    } else {
+      toast(r.error || "Ошибка возврата поля.");
+    }
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function doConnect() {
+  const url = document.getElementById("url").value.trim();
+  const token = document.getElementById("token").value;
+  if (!url) { toast("Введите MCP URL"); return; }
+  const dot = document.getElementById("conn-dot");
+  dot.className = "conn-dot pulse";
+  const payload = { url, token };
+  if (!token && appState.has_saved_token) payload.use_saved_token = true;
+  try {
+    const r = await api("/api/connect", payload, 60000);
+    if (r.ok) toast("Подключено");
+    else toast("Ошибка: " + (r.error || "?").substring(0, 100));
+  } catch (e) {
+    if (e.name === "AbortError") toast("Таймаут подключения (60 сек)");
+    else toast("Ошибка: " + e.message);
+  }
+}
+
+async function doQuery(mode) {
+  const queryText = document.getElementById("query-input").value.trim();
+  if (!queryText) { toast("Введите текст запроса"); return; }
+  if (!appState.connection || !appState.connection.verified) { toast("Сначала подключитесь к серверу"); return; }
+  const forceMask = mergedForceMask();
+  const allowPlain = mergedAllowPlain();
+  document.getElementById("btn-query-masked").disabled = true;
+  try {
+    const r = await api("/api/query", {
+      task: "Запрос из UI",
+      query_text: queryText,
+      mode: mode,
+      force_mask_fields: forceMask,
+      allow_plain_fields: allowPlain
+    }, 310000);
+    if (r.ok) {
+      toast("Запрос выполнен (" + mode + ")");
+    } else {
+      toast("Ошибка: " + (r.message || r.error || "?").substring(0, 150));
+    }
+  } catch (e) {
+    if (e.name === "AbortError") toast("Таймаут запроса (300 сек)");
+    else toast("Ошибка: " + e.message);
+  } finally {
+    document.getElementById("btn-query-masked").disabled = false;
+  }
+}
+
+async function doCancelQuery() {
+  try {
+    const r = await api("/api/cancel_query", {});
+    if (r.ok) toast("Запрос отменён");
+  } catch (e) {
+    toast("Ошибка отмены: " + e.message);
+  }
+}
+
+function clearToken() {
+  document.getElementById("token").value = "";
+  api("/api/disconnect", {});
+}
+
+async function doClearSession() {
+  await api("/api/clear_session", {});
+  sortColumn = null; sortReverse = false;
+  resultRows = []; maskedRows = []; filteredRows = []; filteredMaskedRows = []; filteredIndices = [];
+  tagAllowSet.clear(); tagForceSet.clear();
+  rowDataVersion++;
+  toast("Сессия очищена");
+}
+
+function setTheme(name) {
+  document.body.className = "theme-" + name;
+  api("/api/theme", { theme: name });
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2500);
+}
+
+// ─── Settings ────────────────────────────────────────────────────────
+
+async function loadSettingsForm() {
+  try {
+    const s = await api("/api/settings");
+    console.log("[Settings] /api/settings response:", JSON.stringify(s));
+    document.getElementById("s-mcp-url").value = s.mcp_url || "";
+    document.getElementById("s-mcp-token").value = "";
+    const hint = document.getElementById("s-token-hint");
+    if (s.mcp_token_saved) { hint.style.display = ""; hint.textContent = "\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043a\u043b\u044e\u0447 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043f\u043e\u043b\u0435 \u043f\u0443\u0441\u0442\u044b\u043c, \u0447\u0442\u043e\u0431\u044b \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c."; }
+    else { hint.style.display = "none"; }
+    document.getElementById("s-preview-chars").value = s.defaults_preview_chars || 4000;
+    document.getElementById("s-auto-send").checked = !!s.defaults_auto_send;
+    document.getElementById("s-skip-numeric").checked = !!s.defaults_skip_numeric;
+    document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
+    document.getElementById("s-keywords-hint").textContent = s.allow_plain_keywords || "";
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
+}
+
+async function saveSettings() {
+  const payload = {
+    mcp_url: document.getElementById("s-mcp-url").value.trim(),
+    mcp_token: document.getElementById("s-mcp-token").value,
+    defaults_preview_chars: parseInt(document.getElementById("s-preview-chars").value) || 4000,
+    defaults_auto_send: document.getElementById("s-auto-send").checked,
+    defaults_skip_numeric: document.getElementById("s-skip-numeric").checked,
+    defaults_allow_plain_fields: document.getElementById("s-allow-plain").value.trim(),
+  };
+  try {
+    const r = await api("/api/settings", payload);
+    if (r.ok) {
+      toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b \u0438 \u0437\u0430\u0448\u0438\u0444\u0440\u043e\u0432\u0430\u043d\u044b");
+      const urlEl = document.getElementById("url");
+      if (payload.mcp_url) urlEl.value = payload.mcp_url;
+    } else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + e.message); }
+}
+
+async function resetSettings() {
+  if (!confirm("\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0432\u0441\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438? \u041f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0432\u0435\u0440\u043d\u0451\u0442\u0441\u044f \u043a \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u044f\u043c \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e.")) return;
+  try {
+    const r = await api("/api/settings/reset", {});
+    if (r.ok) { toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u044b"); loadSettingsForm(); }
+    else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+  } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + e.message); }
+}
+
+async function exportSettings() {
+  try {
+    const r = await fetch("/api/settings/export?token=" + encodeURIComponent(sessionToken));
+    if (!r.ok) { toast("Ошибка экспорта"); return; }
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "config.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Настройки экспортированы (без ключа)");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+function importSettings(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const r = await api("/api/settings/import", data);
+      if (r.ok) { toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u044b"); loadSettingsForm(); }
+      else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
+    } catch (err) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0447\u0442\u0435\u043d\u0438\u044f \u0444\u0430\u0439\u043b\u0430: " + err.message); }
+  };
+  reader.readAsText(file);
+  input.value = "";
+}
+
+function toggleTokenVis() {
+  const inp = document.getElementById("s-mcp-token");
+  inp.type = inp.type === "password" ? "text" : "password";
+}
+
+// ─── Init ────────────────────────────────────────────────────────────
+
+fetchState().then(() => {
+  connectSSE();
+  loadBridgeSecret();
+  // Auto-connect if we have saved settings with URL
+  if (appState.has_saved_settings && appState.connection && appState.connection.url && !appState.connection.verified) {
+    doConnect();
+  }
+});
+</script>
+</body>
+</html>
