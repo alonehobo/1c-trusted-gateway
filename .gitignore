@@ -1,0 +1,15 @@
+# Build artifacts
+*.exe
+*.exe~
+rsrc.syso
+
+# IDE local settings
+.claude/settings.local.json
+.cursor/rules/
+
+# Build directories
+dist/
+
+# Binaries distributed via GitHub Releases
+releases/
+1c-extension/*.cfe
