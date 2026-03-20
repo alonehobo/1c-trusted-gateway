@@ -343,6 +343,7 @@ func (app *TrustedWebApp) HandleGetSettings() map[string]any {
 		"defaults_auto_send":          app.Config.Defaults.AutoSendToAgent,
 		"defaults_skip_numeric":       app.Config.Defaults.SkipNumericValues,
 		"defaults_allow_plain_fields": app.Config.Defaults.AllowPlainFields,
+		"defaults_force_mask_fields":  app.Config.Defaults.ForceMaskFields,
 		"has_saved_settings":          app.HasSavedSettings,
 		"allow_plain_keywords":        AllowPlainKeywordsCSV(),
 	}
@@ -384,6 +385,7 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 			"auto_send_to_agent":   getBoolField(data, "defaults_auto_send"),
 			"skip_numeric_values":  getBoolField(data, "defaults_skip_numeric"),
 			"allow_plain_fields":   getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
+			"force_mask_fields":    getStringFieldDefault(data, "defaults_force_mask_fields", ""),
 		},
 		"auth": map[string]any{
 			"token": firstNonEmpty(getStringFieldDefault(data, "mcp_token", ""), app.ConnectedToken),
@@ -449,6 +451,7 @@ func (app *TrustedWebApp) HandleExportSettings() map[string]any {
 			"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
 			"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
 			"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
+			"force_mask_fields":    app.Config.Defaults.ForceMaskFields,
 		},
 	}
 }
@@ -1122,6 +1125,10 @@ func csvFields(raw string) map[string]bool {
 
 func (app *TrustedWebApp) mergedForceMask() map[string]bool {
 	combined := make(map[string]bool)
+	// From saved settings
+	for k := range csvFields(app.Config.Defaults.ForceMaskFields) {
+		combined[k] = true
+	}
 	for k := range csvFields(app.PersistentForceMask) {
 		combined[k] = true
 	}
