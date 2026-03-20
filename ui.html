@@ -615,6 +615,11 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
               <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
               <span class="settings-hint">Эти поля будут передаваться агенту открыто.</span>
             </label>
+            <label class="settings-field">
+              <span class="settings-label">Шифровать принудительно (через запятую)</span>
+              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые шифровать даже если числа разрешены (например: ИНН, КПП, Серия)"></textarea>
+              <span class="settings-hint">По умолчанию: ИНН, КПП, СНИЛС, ОГРН, БИК, Серия. Добавьте свои поля при необходимости.</span>
+            </label>
           </fieldset>
 
           <fieldset class="settings-section">
@@ -1724,6 +1729,7 @@ async function loadSettingsForm() {
     document.getElementById("s-auto-send").checked = !!s.defaults_auto_send;
     document.getElementById("s-skip-numeric").checked = !!s.defaults_skip_numeric;
     document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
+    document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
     document.getElementById("s-keywords-hint").textContent = s.allow_plain_keywords || "";
   } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
 }
@@ -1736,6 +1742,7 @@ async function saveSettings() {
     defaults_auto_send: document.getElementById("s-auto-send").checked,
     defaults_skip_numeric: document.getElementById("s-skip-numeric").checked,
     defaults_allow_plain_fields: document.getElementById("s-allow-plain").value.trim(),
+    defaults_force_mask_fields: document.getElementById("s-force-mask").value.trim(),
   };
   try {
     const r = await api("/api/settings", payload);
