@@ -328,6 +328,18 @@ input::placeholder { color: var(--text-tertiary); }
 }
 .result-placeholder.error { color: var(--error); font-weight: 600; }
 
+/* ─── CodeMirror overrides ─── */
+#query-editor .cm-editor { height: 100%; background: var(--bg-panel); }
+#query-editor .cm-editor.cm-focused { outline: none; }
+#query-editor .cm-scroller { font-family: var(--font-mono); font-size: 13px; line-height: 1.5; }
+#query-editor .cm-gutters { background: var(--bg-2); border-right: 1px solid var(--border); color: var(--text-tertiary); }
+#query-editor .cm-activeLineGutter { background: var(--surface-hover); }
+#query-editor .cm-activeLine { background: var(--surface); }
+#query-editor .cm-content { color: var(--text-primary); caret-color: var(--accent); }
+#query-editor .cm-cursor { border-left-color: var(--accent); }
+#query-editor .cm-selectionBackground, #query-editor .cm-editor.cm-focused .cm-selectionBackground { background: var(--accent-soft) !important; }
+#query-editor .cm-matchingBracket { background: rgba(108,138,255,0.25); color: var(--accent) !important; }
+
 /* ─── Text Panels ─── */
 .text-panel {
   flex: 1; min-height: 0; background: var(--bg-2); color: var(--text-primary);
@@ -572,12 +584,15 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
     <div id="tab-raw" class="tab-panel active">
       <div class="split-h" style="flex:1; min-height:0;">
         <div class="split-pane" style="flex:0 0 40%; max-width:40%; display:flex; flex-direction:column;">
-          <div class="pane-header">Запрос</div>
-          <textarea id="query-input" style="flex:1; resize:none; margin:0; border-radius:0; border:none; border-top:1px solid var(--border); font-family:var(--font-mono); font-size:13px; padding:8px; background:var(--bg-panel); color:var(--text-primary);" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
-          <div class="query-actions" style="padding:6px 0; display:flex; gap:6px;">
-            <button class="btn btn-primary" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос с маскировкой данных">&#9654; Выполнить</button>
-            <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
+          <div class="pane-header" style="display:flex; align-items:center; justify-content:space-between;">
+            <span>Запрос</span>
+            <span style="display:flex; gap:4px;">
+              <button class="btn btn-ghost btn-xs" onclick="formatQuery()" title="Форматировать запрос">{ } Формат</button>
+              <button class="btn btn-primary btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос">&#9654; Выполнить</button>
+              <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить">&#9940; Отмена</button>
+            </span>
           </div>
+          <div id="query-editor" style="flex:1; overflow:auto; border-top:1px solid var(--border);"></div>
         </div>
         <div class="split-pane" style="flex:1; min-height:0;">
           <div class="pane-header" id="raw-response-label">Ответ MCP</div>
@@ -858,10 +873,19 @@ function render(s) {
 
   // Raw
   // Sync query input from server (agent-submitted query) — don't overwrite if user is typing
-  const queryInputEl = document.getElementById("query-input");
   const serverQuery = s.query_preview || "";
-  if (serverQuery && queryInputEl !== document.activeElement && queryInputEl.value !== serverQuery) {
-    queryInputEl.value = serverQuery;
+  if (serverQuery && window.queryEditor && !window.queryEditorFocused) {
+    const currentText = window.queryEditor.state.doc.toString();
+    if (currentText !== serverQuery) {
+      if (window.queryEditor.ace) {
+        window.queryEditor.ace.setValue(serverQuery, -1);
+        window.queryEditor.ace.clearSelection();
+      } else {
+        window.queryEditor.dispatch({
+          changes: {from: 0, to: currentText.length, insert: serverQuery}
+        });
+      }
+    }
   }
   const rawEl = document.getElementById("raw-response");
   rawEl.textContent = s.raw_response || "";
@@ -1648,7 +1672,7 @@ async function doConnect() {
 }
 
 async function doQuery(mode) {
-  const queryText = document.getElementById("query-input").value.trim();
+  const queryText = (window.queryEditor ? window.queryEditor.state.doc.toString() : "").trim();
   if (!queryText) { toast("Введите текст запроса"); return; }
   if (!appState.connection || !appState.connection.verified) { toast("Сначала подключитесь к серверу"); return; }
   const forceMask = mergedForceMask();
@@ -1701,6 +1725,119 @@ async function doClearSession() {
 function setTheme(name) {
   document.body.className = "theme-" + name;
   api("/api/theme", { theme: name });
+}
+
+// ─── Query Formatter ─────────────────────────────────────────────────
+
+function formatQuery() {
+  if (!window.queryEditor) return;
+  const src = window.queryEditor.state.doc.toString();
+  if (!src.trim()) return;
+  const formatted = format1CQuery(src);
+  if (window.queryEditor.ace) {
+    window.queryEditor.ace.setValue(formatted, -1);
+    window.queryEditor.ace.clearSelection();
+  } else {
+    const len = window.queryEditor.state.doc.length;
+    window.queryEditor.dispatch({changes: {from: 0, to: len, insert: formatted}});
+  }
+}
+
+function format1CQuery(src) {
+  // Preserve string literals
+  const strings = [];
+  let text = src.replace(/"([^"]*)"/g, (m) => {
+    strings.push(m); return "\x01S" + (strings.length - 1) + "\x01";
+  });
+
+  // Normalize whitespace
+  text = text.replace(/\s+/g, " ").trim();
+
+  // Word boundary for Unicode (cyrillic-aware)
+  // We use a tokenizer approach instead of \b
+  const T = "\t";
+  const NL = "\n";
+
+  // Keyword sets (uppercase for matching)
+  const newlineBefore = new Set([
+    "ВЫБРАТЬ","SELECT","ИЗ","FROM","ГДЕ","WHERE",
+    "ИМЕЮЩИЕ","HAVING","ИТОГИ","TOTALS"
+  ]);
+  const newlineBeforeMulti = [
+    ["ГРУППИРОВАТЬ","ПО"], ["GROUP","BY"],
+    ["УПОРЯДОЧИТЬ","ПО"], ["ORDER","BY"],
+    ["ОБЪЕДИНИТЬ","ВСЕ"], ["UNION","ALL"],
+    ["ЛЕВОЕ","СОЕДИНЕНИЕ"], ["LEFT","JOIN"],
+    ["ПРАВОЕ","СОЕДИНЕНИЕ"], ["RIGHT","JOIN"],
+    ["ВНУТРЕННЕЕ","СОЕДИНЕНИЕ"], ["INNER","JOIN"],
+    ["ПОЛНОЕ","СОЕДИНЕНИЕ"], ["FULL","JOIN"],
+  ];
+  const indentBefore = new Set(["И","ИЛИ","AND","OR"]);
+  const selectKw = new Set(["ВЫБРАТЬ","SELECT"]);
+
+  // Tokenize: split into words, punctuation, whitespace
+  const tokens = [];
+  const tokenRe = /([a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ0-9_.]*|\d+(?:\.\d+)?|"[^"]*"|'[^']*'|[(),;=<>!+\-*/]|\S)/g;
+  let m;
+  while ((m = tokenRe.exec(text)) !== null) tokens.push(m[1]);
+
+  let result = "";
+  let inSelect = false;
+  let depth = 0; // paren depth
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const up = tok.toUpperCase();
+    const next = (tokens[i + 1] || "").toUpperCase();
+
+    // Check multi-word keywords (lookahead)
+    let multiMatch = null;
+    for (const pair of newlineBeforeMulti) {
+      if (up === pair[0] && next === pair[1]) { multiMatch = pair; break; }
+    }
+
+    if (multiMatch) {
+      if (result.length > 0) result += NL;
+      result += tok + " " + tokens[i + 1];
+      i++; // skip next token
+      inSelect = false;
+      result += NL + T;
+    } else if (newlineBefore.has(up)) {
+      if (result.length > 0) result += NL;
+      result += tok;
+      inSelect = selectKw.has(up);
+      result += NL + T;
+    } else if (indentBefore.has(up) && depth === 0) {
+      result += NL + T + tok + " ";
+    } else if (tok === ",") {
+      if (inSelect && depth === 0) {
+        result += "," + NL + T;
+      } else {
+        result += ", ";
+      }
+    } else if (tok === "(") {
+      depth++;
+      result += "(";
+    } else if (tok === ")") {
+      depth = Math.max(0, depth - 1);
+      result += ")";
+    } else {
+      // Add space before token if needed
+      if (result.length > 0) {
+        const last = result[result.length - 1];
+        if (last !== NL && last !== T && last !== "(" && last !== " " && tok !== ")") {
+          result += " ";
+        }
+      }
+      result += tok;
+    }
+  }
+
+  result = result.replace(/\n{3,}/g, "\n\n").trim();
+
+  // Restore string literals
+  result = result.replace(/\x01S(\d+)\x01/g, (m, idx) => strings[parseInt(idx)]);
+  return result;
 }
 
 // ─── Toast ───────────────────────────────────────────────────────────
@@ -1810,6 +1947,145 @@ fetchState().then(() => {
     doConnect();
   }
 });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/ace.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/theme-one_dark.js"></script>
+<script>
+(function() {
+  // ─── 1C Query Language mode for Ace (direct require) ─────────────
+  var oop = ace.require("ace/lib/oop");
+  var TextMode = ace.require("ace/mode/text").Mode;
+  var TextHighlightRules = ace.require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+  // ─── Словарь из SDBLLexer.g4 (1c-syntax/bsl-parser) ─────────────
+  var keywords = (
+    // Основные
+    "ВЫБРАТЬ|РАЗРЕШЕННЫЕ|РАЗЛИЧНЫЕ|ПЕРВЫЕ|" +
+    "ИЗ|КАК|ГДЕ|И|ИЛИ|НЕ|В|МЕЖДУ|ПОДОБНО|СПЕЦСИМВОЛ|ЕСТЬ|NULL|ИСТИНА|ЛОЖЬ|" +
+    // Соединения
+    "ЛЕВОЕ|ПРАВОЕ|ВНУТРЕННЕЕ|ПОЛНОЕ|ВНЕШНЕЕ|СОЕДИНЕНИЕ|ПО|НА|" +
+    // Группировка, сортировка
+    "СГРУППИРОВАТЬ|ГРУППИРУЮЩИМ|НАБОРАМ|УПОРЯДОЧИТЬ|ВОЗР|УБЫВ|" +
+    "ИМЕЮЩИЕ|ОБЪЕДИНИТЬ|ВСЕ|" +
+    // Условия
+    "КОГДА|ТОГДА|КОНЕЦ|ИНАЧЕ|ВЫБОР|" +
+    // Типы и ссылки
+    "ЗНАЧЕНИЕ|ТИП|ТИПЗНАЧЕНИЯ|ВЫРАЗИТЬ|" +
+    // Временные таблицы
+    "ПОМЕСТИТЬ|ТАБЛИЦА|УНИЧТОЖИТЬ|ИНДЕКСИРОВАТЬ|ПУСТАЯТАБЛИЦА|" +
+    // Блокировка, иерархия, итоги
+    "ДЛЯ|ИЗМЕНЕНИЯ|ИЕРАРХИЯ|ИЕРАРХИИ|ИТОГИ|ОБЩИЕ|ТОЛЬКО|ПЕРИОДАМИ|" +
+    "АВТОУПОРЯДОЧИВАНИЕ|НЕОПРЕДЕЛЕНО|" +
+    // Уникальность, группировка
+    "УНИКАЛЬНО|СГРУППИРОВАНОПО|АВТОНОМЕРЗАПИСИ|" +
+    // English — основные
+    "SELECT|ALLOWED|DISTINCT|TOP|" +
+    "FROM|AS|WHERE|AND|OR|NOT|IN|BETWEEN|LIKE|ESCAPE|IS|TRUE|FALSE|" +
+    "LEFT|RIGHT|INNER|FULL|OUTER|JOIN|ON|BY|OF|" +
+    "GROUP|GROUPING|SETS|ORDER|ASC|DESC|" +
+    "HAVING|UNION|ALL|" +
+    "WHEN|THEN|END|ELSE|CASE|" +
+    "VALUE|TYPE|VALUETYPE|CAST|" +
+    "INTO|TABLE|DROP|INDEX|FOR|UPDATE|HIERARCHY|TOTALS|AUTOORDER|" +
+    "EMPTYTABLE|ONLY|PERIODS|UNDEFINED|" +
+    "UNIQUE|GROUPEDBY|RECORDAUTONUMBER"
+  );
+  var builtinFunctions = (
+    // Даты
+    "ДАТАВРЕМЯ|ГОД|КВАРТАЛ|МЕСЯЦ|ДЕНЬГОДА|ДЕНЬ|НЕДЕЛЯ|ДЕНЬНЕДЕЛИ|ЧАС|МИНУТА|СЕКУНДА|" +
+    "ПОЛУГОДИЕ|ДЕКАДА|" +
+    "НАЧАЛОПЕРИОДА|КОНЕЦПЕРИОДА|ДОБАВИТЬКДАТЕ|РАЗНОСТЬДАТ|" +
+    // Строки
+    "ПОДСТРОКА|ДЛИНАСТРОКИ|СТРОКА|СОКРЛ|СОКРП|СОКРЛП|ВРЕГ|НРЕГ|СТРЗАМЕНИТЬ|СТРНАЙТИ|" +
+    // Проверки и представления
+    "ЕСТЬNULL|ПРЕДСТАВЛЕНИЕ|ПРЕДСТАВЛЕНИЕССЫЛКИ|" +
+    // Агрегатные
+    "КОЛИЧЕСТВО|СУММА|МИНИМУМ|МАКСИМУМ|СРЕДНЕЕ|" +
+    // Математические
+    "ЦЕЛ|ОКР|" +
+    // Типы данных
+    "ЧИСЛО|ДАТА|БУЛЕВО|" +
+    // English — даты
+    "DATETIME|YEAR|QUARTER|MONTH|DAYOFYEAR|DAY|WEEK|WEEKDAY|HOUR|MINUTE|SECOND|" +
+    "HALFYEAR|TENDAYS|" +
+    "BEGINOFPERIOD|ENDOFPERIOD|DATEADD|DATEDIFF|" +
+    // English — строки
+    "SUBSTRING|STRINGLENGTH|STRING|TRIML|TRIMR|TRIMALL|UPPER|LOWER|STRREPLACE|STRFIND|" +
+    // English — проверки
+    "ISNULL|PRESENTATION|REFPRESENTATION|" +
+    // English — агрегатные
+    "COUNT|SUM|MIN|MAX|AVG|" +
+    // English — математические
+    "INT|ROUND|ACOS|ASIN|ATAN|COS|SIN|TAN|EXP|LOG|LOG10|POW|SQRT|" +
+    // English — типы
+    "NUMBER|DATE|BOOLEAN"
+  );
+  var types = (
+    "Число|Строка|Дата|Булево|Неопределено|" +
+    "Number|String|Date|Boolean|Undefined"
+  );
+
+  var OneCRules = function() {
+    this.$rules = {
+      "start": [
+        { token: "comment.line", regex: "//.*$" },
+        { token: "string", regex: '"', next: "string" },
+        { token: "constant.numeric", regex: "\\d+(?:\\.\\d+)?" },
+        { token: "keyword", regex: "(?:" + keywords + ")(?![a-zA-Zа-яА-ЯёЁ0-9_])", caseInsensitive: true },
+        { token: "support.function", regex: "(?:" + builtinFunctions + ")(?=\\s*\\()", caseInsensitive: true },
+        { token: "storage.type", regex: "(?:" + types + ")(?![a-zA-Zа-яА-ЯёЁ0-9_])", caseInsensitive: true },
+        { token: "variable.parameter", regex: "&[a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ0-9_]*" },
+        { token: "keyword.operator", regex: "<>|<=|>=|[=<>+\\-*/]" },
+        { token: "paren.lparen", regex: "\\(" },
+        { token: "paren.rparen", regex: "\\)" },
+        { token: "punctuation.operator", regex: "[,;.]" },
+        { token: "identifier", regex: "[a-zA-Zа-яА-ЯёЁ_][a-zA-Zа-яА-ЯёЁ0-9_]*" },
+        { token: "text", regex: "\\s+" }
+      ],
+      "string": [
+        { token: "string", regex: '""' },
+        { token: "string", regex: '"', next: "start" },
+        { token: "constant.character.escape", regex: "\\|" },
+        { defaultToken: "string" }
+      ]
+    };
+  };
+  oop.inherits(OneCRules, TextHighlightRules);
+
+  var OneCMode = function() {
+    this.HighlightRules = OneCRules;
+    this.$behaviour = this.$defaultBehaviour;
+  };
+  oop.inherits(OneCMode, TextMode);
+
+  // ─── Editor init ──────────────────────────────────────────────────
+  var editor = ace.edit("query-editor");
+  editor.setTheme("ace/theme/one_dark");
+  editor.session.setMode(new OneCMode());
+  editor.setOptions({
+    fontSize: "13px",
+    fontFamily: "'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
+    showPrintMargin: false,
+    wrap: true,
+    tabSize: 4,
+    useSoftTabs: false
+  });
+  editor.renderer.setScrollMargin(4, 4);
+
+  window.queryEditorFocused = false;
+  editor.on("focus", function() { window.queryEditorFocused = true; });
+  editor.on("blur", function() { window.queryEditorFocused = false; });
+
+  // Unified API for the rest of the app
+  window.queryEditor = {
+    state: { doc: { toString: function() { return editor.getValue(); } } },
+    dispatch: function(tr) {
+      if (tr && tr.changes) editor.setValue(tr.changes.insert || "", -1);
+    },
+    ace: editor
+  };
+})();
+</script>
 </script>
 </body>
 </html>
