@@ -14,6 +14,10 @@ var (
 	numericPattern = regexp.MustCompile(`^[+-]?\d+(?:\.\d+)?$`)
 	wordPattern    = regexp.MustCompile(`[A-Za-zА-Яа-яЁё0-9]+`)
 
+	// sensitiveFieldKeywords — fields that are always masked even when skipNumeric is on.
+	// Only explicit whitelist can override this.
+	sensitiveFieldKeywords = []string{"инн", "кпп", "снилс", "огрн", "огрнип", "бик", "серия", "серии", "серий", "inn", "kpp", "snils", "serial"}
+
 	// DefaultAllowPlainKeywords is empty — all fields are masked by default.
 	// Users add fields to the white-list explicitly via UI or settings.
 	DefaultAllowPlainKeywords = []string{}
@@ -145,8 +149,9 @@ func (ds *DataSanitizer) maskValue(
 		return value
 	}
 
-	// Skip numeric values if the option is enabled
-	if ds.skipNumeric && isRealNumber(value) {
+	// Skip numeric values if the option is enabled,
+	// but never for sensitive fields (ИНН, КПП, etc.) — those require explicit whitelist
+	if ds.skipNumeric && !isSensitiveField(normalizedName) && isRealNumber(value) {
 		return value
 	}
 
@@ -267,6 +272,21 @@ func prefixFor(fieldName string) string {
 	return string(runes)
 }
 
+// isSensitiveField checks if the field name contains ИНН, КПП or similar identifiers
+// that must always be masked even when skipNumeric is on.
+func isSensitiveField(normalizedFieldName string) bool {
+	for _, kw := range sensitiveFieldKeywords {
+		if strings.Contains(normalizedFieldName, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxNumericStringLen is the maximum length of a digit string to consider it a real number.
+// Longer strings are treated as codes/identifiers and get masked.
+const maxNumericStringLen = 15
+
 // isRealNumber checks whether a value looks like a real number (price, amount, quantity)
 // as opposed to a phone number, document number, or other digit-based identifier.
 // Rules:
@@ -274,6 +294,7 @@ func prefixFor(fieldName string) string {
 //   - String values: strip thousand separators (spaces, nbsp), allow one "." or "," as decimal
 //   - Reject if there are any characters besides digits, one separator, leading +/-, spaces
 //   - Reject leading zeros like "007", "00123" (but allow "0", "0.5", "0,12")
+//   - Reject digit strings longer than 15 characters (likely codes/identifiers)
 func isRealNumber(value any) bool {
 	switch value.(type) {
 	case float64, float32, int, int8, int16, int32, int64,
@@ -310,6 +331,12 @@ func isRealNumber(value any) bool {
 		digits = digits[1:]
 	}
 	if len(digits) > 1 && digits[0] == '0' && digits[1] != '.' {
+		return false
+	}
+
+	// Reject overly long digit strings — likely codes or identifiers
+	digitOnly := strings.ReplaceAll(digits, ".", "")
+	if len(digitOnly) > maxNumericStringLen {
 		return false
 	}
 
