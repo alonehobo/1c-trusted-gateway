@@ -102,8 +102,9 @@ body {
 .field-url { flex: 2; }
 .field-token { flex: 1; }
 
-.mask-bar { display: flex; gap: 12px; padding: 6px 16px !important; }
+.mask-bar { display: flex; gap: 12px; padding: 6px 16px !important; align-items: center; }
 .mask-field { flex: 1; display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.skip-numeric-label { display: flex; align-items: center; gap: 4px; flex-shrink: 0; cursor: pointer; }
 .mask-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; padding-top: 5px; flex-shrink: 0; }
 .mask-input {
   flex: 1; min-width: 0; resize: vertical;
@@ -139,18 +140,7 @@ body {
 .bridge-secret:hover { background: var(--accent); color: #fff; }
 .bridge-addr { color: var(--text-tertiary); font-family: 'Cascadia Code', monospace; font-size: 10px; }
 
-/* Query input bar */
-.query-bar { display: flex; gap: 8px; padding: 8px 0; align-items: stretch; }
-.query-bar textarea {
-  flex: 1; min-height: 36px; max-height: 200px; resize: vertical;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 12px; line-height: 1.4;
-  padding: 8px 10px; border-radius: var(--radius-xs);
-  background: var(--input-bg); border: 1px solid var(--border);
-  color: var(--text-primary); tab-size: 2;
-}
-.query-bar textarea:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
-.query-bar textarea::placeholder { color: var(--text-tertiary); }
-.query-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+.query-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 .header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transition: all var(--transition); }
@@ -478,11 +468,9 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <span id="conn-dot" class="conn-dot fail" title="Не подключено"></span>
       <button class="btn btn-primary" onclick="doConnect()">Подключить</button>
       <button class="btn btn-ghost" onclick="doClearSession()">Сброс</button>
-      <div class="divider-v"></div>
-      <span class="bridge-label">Secret:</span>
-      <code class="bridge-secret" id="bridge-secret-text" title="Нажмите для копирования" onclick="copyBridgeSecret()">—</code>
-      <button class="btn btn-ghost btn-xs" onclick="copyBridgeSecret()">&#128203;</button>
-      <span class="bridge-addr" id="bridge-addr"></span>
+      <!-- Bridge Secret hidden — MCP server used instead -->
+      <span class="bridge-addr" id="bridge-addr" style="display:none"></span>
+      <code id="bridge-secret-text" style="display:none">—</code>
       <div class="divider-v"></div>
       <button class="btn btn-icon" onclick="setTheme('light')" title="Светлая тема">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
@@ -499,6 +487,10 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <span class="mask-label">Белый список (не шифровать):</span>
       <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не шифровать (через запятую)..." oninput="onAllowPlainInput()"></textarea>
     </div>
+    <label class="skip-numeric-label" title="Не шифровать значения, которые выглядят как настоящие числа (суммы, количества, цены). Номера документов, телефоны и прочие цифровые идентификаторы продолжат шифроваться.">
+      <input type="checkbox" id="skip-numeric-cb" onchange="onSkipNumericChange()">
+      <span class="mask-label" style="padding-top:0; cursor:pointer;">Числовые значения</span>
+    </label>
     <textarea id="force-mask" style="display:none"></textarea>
   </div>
 
@@ -578,19 +570,16 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 
     <!-- Tab: Raw (MCP) -->
     <div id="tab-raw" class="tab-panel active">
-      <div class="query-bar">
-        <textarea id="query-input" rows="3" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
-        <div class="query-actions">
-          <button class="btn btn-primary" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос с маскировкой данных">&#9654; Выполнить</button>
-          <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
+      <div class="split-h" style="flex:1; min-height:0;">
+        <div class="split-pane" style="flex:0 0 40%; max-width:40%; display:flex; flex-direction:column;">
+          <div class="pane-header">Запрос</div>
+          <textarea id="query-input" style="flex:1; resize:none; margin:0; border-radius:0; border:none; border-top:1px solid var(--border); font-family:var(--font-mono); font-size:13px; padding:8px; background:var(--bg-panel); color:var(--text-primary);" placeholder="ВЫБРАТЬ * ИЗ Справочник.Контрагенты ГДЕ ..."></textarea>
+          <div class="query-actions" style="padding:6px 0; display:flex; gap:6px;">
+            <button class="btn btn-primary" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос с маскировкой данных">&#9654; Выполнить</button>
+            <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить выполняемый запрос">&#9940; Отмена</button>
+          </div>
         </div>
-      </div>
-      <div class="split-h">
-        <div class="split-pane">
-          <div class="pane-header">Запрос 1С</div>
-          <div class="text-panel" id="query-preview"></div>
-        </div>
-        <div class="split-pane">
+        <div class="split-pane" style="flex:1; min-height:0;">
           <div class="pane-header" id="raw-response-label">Ответ MCP</div>
           <div class="text-panel" id="raw-response"></div>
         </div>
@@ -626,11 +615,6 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
               <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
               <span class="settings-hint">Эти поля будут передаваться агенту открыто.</span>
             </label>
-            <label class="settings-field">
-              <span class="settings-label">Шифровать принудительно (через запятую)</span>
-              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля для принудительной маскировки (даже если совпадают с allow-list)"></textarea>
-              <span class="settings-hint">Эти поля будут зашифрованы, даже если попадают в allow-list.</span>
-            </label>
           </fieldset>
 
           <fieldset class="settings-section">
@@ -641,8 +625,12 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
                 <input type="number" id="s-preview-chars" class="settings-input settings-input-short" min="100" step="100">
               </label>
               <label class="settings-field settings-check-wrap">
-                <input type="checkbox" id="s-auto-execute">
-                <span class="settings-label">Выполнять без подтверждения</span>
+                <input type="checkbox" id="s-auto-send">
+                <span class="settings-label">Авто-режим (отправлять данные агенту без подтверждения)</span>
+              </label>
+              <label class="settings-field settings-check-wrap">
+                <input type="checkbox" id="s-skip-numeric">
+                <span class="settings-label">Не шифровать числовые значения (суммы, количества, цены)</span>
               </label>
             </div>
           </fieldset>
@@ -650,8 +638,9 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
           <div class="settings-actions">
             <button class="btn btn-primary" onclick="saveSettings()">&#128190; Сохранить</button>
             <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
+            <button class="btn btn-ghost" onclick="exportSettings()">&#128228; Экспорт</button>
             <label class="btn btn-ghost settings-import-label">
-              &#128229; Импорт config.json
+              &#128229; Импорт
               <input type="file" id="s-import-file" accept=".json" style="display:none" onchange="importSettings(this)">
             </label>
           </div>
@@ -863,7 +852,12 @@ function render(s) {
   document.getElementById("analysis-display").textContent = s.analysis_display || "";
 
   // Raw
-  document.getElementById("query-preview").textContent = s.query_preview || "";
+  // Sync query input from server (agent-submitted query) — don't overwrite if user is typing
+  const queryInputEl = document.getElementById("query-input");
+  const serverQuery = s.query_preview || "";
+  if (serverQuery && queryInputEl !== document.activeElement && queryInputEl.value !== serverQuery) {
+    queryInputEl.value = serverQuery;
+  }
   const rawEl = document.getElementById("raw-response");
   rawEl.textContent = s.raw_response || "";
   rawEl.className = "text-panel raw-border-" + (s.raw_state || "neutral");
@@ -883,6 +877,12 @@ function render(s) {
   if (allowPlainEl !== document.activeElement && allowPlainEl.value !== serverAllowPlain) {
     allowPlainEl.value = serverAllowPlain;
     updateAllowPlainHighlight();
+  }
+
+  // Sync skip-numeric checkbox
+  const skipNumericCb = document.getElementById("skip-numeric-cb");
+  if (skipNumericCb.checked !== !!s.skip_numeric_values) {
+    skipNumericCb.checked = !!s.skip_numeric_values;
   }
 
   // Unmasked/masked columns indicator — render into both tabs
@@ -1526,6 +1526,11 @@ function onAllowPlainInput() {
   }, 400);
 }
 
+async function onSkipNumericChange() {
+  const enabled = document.getElementById("skip-numeric-cb").checked;
+  await api("/api/skip_numeric", { enabled });
+}
+
 async function allowField(fieldName) {
   tagAllowSet.add(fieldName);
   tagForceSet.delete(fieldName);
@@ -1716,8 +1721,8 @@ async function loadSettingsForm() {
     if (s.mcp_token_saved) { hint.style.display = ""; hint.textContent = "\u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043a\u043b\u044e\u0447 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043f\u043e\u043b\u0435 \u043f\u0443\u0441\u0442\u044b\u043c, \u0447\u0442\u043e\u0431\u044b \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c."; }
     else { hint.style.display = "none"; }
     document.getElementById("s-preview-chars").value = s.defaults_preview_chars || 4000;
-    document.getElementById("s-auto-execute").checked = !!s.defaults_auto_execute;
-    document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
+    document.getElementById("s-auto-send").checked = !!s.defaults_auto_send;
+    document.getElementById("s-skip-numeric").checked = !!s.defaults_skip_numeric;
     document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
     document.getElementById("s-keywords-hint").textContent = s.allow_plain_keywords || "";
   } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
@@ -1728,8 +1733,8 @@ async function saveSettings() {
     mcp_url: document.getElementById("s-mcp-url").value.trim(),
     mcp_token: document.getElementById("s-mcp-token").value,
     defaults_preview_chars: parseInt(document.getElementById("s-preview-chars").value) || 4000,
-    defaults_auto_execute: document.getElementById("s-auto-execute").checked,
-    defaults_force_mask_fields: document.getElementById("s-force-mask").value.trim(),
+    defaults_auto_send: document.getElementById("s-auto-send").checked,
+    defaults_skip_numeric: document.getElementById("s-skip-numeric").checked,
     defaults_allow_plain_fields: document.getElementById("s-allow-plain").value.trim(),
   };
   try {
@@ -1749,6 +1754,22 @@ async function resetSettings() {
     if (r.ok) { toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u044b"); loadSettingsForm(); }
     else toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + (r.error || "?"));
   } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430: " + e.message); }
+}
+
+async function exportSettings() {
+  try {
+    const r = await fetch("/api/settings/export?token=" + encodeURIComponent(sessionToken));
+    if (!r.ok) { toast("Ошибка экспорта"); return; }
+    const data = await r.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "config.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Настройки экспортированы (без ключа)");
+  } catch (e) { toast("Ошибка: " + e.message); }
 }
 
 function importSettings(input) {

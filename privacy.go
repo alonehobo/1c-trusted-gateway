@@ -34,6 +34,7 @@ type DataSanitizer struct {
 	salt             string
 	aliasLength      int
 	allowKeywords    []string // substrings to match in field names for allow-list
+	skipNumeric      bool     // when true, values that look like real numbers (prices, amounts) pass through unmasked
 }
 
 // NewDataSanitizer creates a new sanitizer.
@@ -141,6 +142,11 @@ func (ds *DataSanitizer) maskValue(
 
 	// Check built-in allow keywords (Количество, Цена, Сумма, НДС)
 	if ds.matchesAllowKeyword(normalizedName) {
+		return value
+	}
+
+	// Skip numeric values if the option is enabled
+	if ds.skipNumeric && isRealNumber(value) {
 		return value
 	}
 
@@ -259,6 +265,55 @@ func prefixFor(fieldName string) string {
 	}
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+// isRealNumber checks whether a value looks like a real number (price, amount, quantity)
+// as opposed to a phone number, document number, or other digit-based identifier.
+// Rules:
+//   - Go numeric types (float64, int, etc.) are always real numbers
+//   - String values: strip thousand separators (spaces, nbsp), allow one "." or "," as decimal
+//   - Reject if there are any characters besides digits, one separator, leading +/-, spaces
+//   - Reject leading zeros like "007", "00123" (but allow "0", "0.5", "0,12")
+func isRealNumber(value any) bool {
+	switch value.(type) {
+	case float64, float32, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64:
+		return true
+	case json.Number:
+		return true
+	}
+
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+
+	// Strip thousand separators (spaces, non-breaking spaces)
+	normalized := strings.ReplaceAll(text, "\u00A0", "")
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	// Replace comma decimal separator with dot
+	normalized = strings.ReplaceAll(normalized, ",", ".")
+
+	// Must match a simple number pattern: optional sign, digits, optional one decimal part
+	if !numericPattern.MatchString(normalized) {
+		return false
+	}
+
+	// Reject leading zeros: "007", "00123" — likely document/phone numbers
+	// Allow: "0", "0.5", "-0.12"
+	digits := normalized
+	if len(digits) > 0 && (digits[0] == '+' || digits[0] == '-') {
+		digits = digits[1:]
+	}
+	if len(digits) > 1 && digits[0] == '0' && digits[1] != '.' {
+		return false
+	}
+
+	return true
 }
 
 // looksNumeric checks if text looks like a number, handling Russian formatting

@@ -103,6 +103,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	ctx context.Context,
 	url, token, task, queryText, mode string,
 	forceMaskFields, allowPlainFields map[string]bool,
+	skipNumeric ...bool,
 ) (*TrustedSession, error) {
 	client := rt.buildMcpClient(url)
 	if err := client.Initialize(ctx); err != nil {
@@ -165,6 +166,9 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 
 	// Masked mode
 	sanitizer := rt.runtimeSanitizer(token)
+	if len(skipNumeric) > 0 && skipNumeric[0] {
+		sanitizer.skipNumeric = true
+	}
 	sanitized := sanitizer.SanitizeRows(rows, forceMaskFields, allowPlainFields)
 	session.DisplayRows = sanitized.DisplayRows
 	session.MaskedRows = sanitized.MaskedRows

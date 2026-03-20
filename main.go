@@ -380,13 +380,8 @@ func main() {
 	}
 
 	app = NewTrustedWebApp(config, savedToken)
-
-	// Start TCP bridge
-	if err := app.Bridge.Start(); err != nil {
-		fmt.Printf("Failed to start TCP bridge: %v\n", err)
-	} else {
-		fmt.Printf("TCP bridge: %s:%d\n", DefaultBridgeHost, DefaultBridgePort)
-	}
+	app.AutoSendToAgent = config.Defaults.AutoSendToAgent
+	app.SkipNumericValues = config.Defaults.SkipNumericValues
 
 	// Start HTTP server
 	host := DefaultWebHost

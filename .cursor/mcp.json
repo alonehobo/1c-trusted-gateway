@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "trusted-gateway": {
+      "type": "http",
+      "url": "http://localhost:8767/mcp"
+    }
+  }
+}

@@ -26,10 +26,10 @@ type PrivacyConfig struct {
 
 // DefaultsConfig holds default runtime parameters.
 type DefaultsConfig struct {
-	ResultPreviewChars         int    `json:"result_preview_chars,omitempty"`
-	ExecuteWithoutConfirmation bool   `json:"execute_without_confirmation,omitempty"`
-	ForceMaskFields            string `json:"force_mask_fields,omitempty"`
-	AllowPlainFields           string `json:"allow_plain_fields,omitempty"`
+	ResultPreviewChars int    `json:"result_preview_chars,omitempty"`
+	AutoSendToAgent    bool   `json:"auto_send_to_agent,omitempty"`
+	SkipNumericValues  bool   `json:"skip_numeric_values,omitempty"`
+	AllowPlainFields   string `json:"allow_plain_fields,omitempty"`
 }
 
 // AppConfig is the top-level application configuration.

@@ -3,6 +3,10 @@
 *.exe~
 rsrc.syso
 
+# IDE local settings
+.claude/settings.local.json
+.cursor/rules/
+
 # Build directories
 dist/
 

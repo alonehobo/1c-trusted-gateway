@@ -65,12 +65,12 @@ type TrustedWebApp struct {
 	TotalRowCount   int
 
 	SessionToken string
-	Bridge       *TrustedBridgeServer
 
-	AutoSendToAgent bool
+	AutoSendToAgent  bool
+	SkipNumericValues bool // when true, real numbers (prices, amounts) are not masked
 
 	// Rate-limiter / brute-force detection
-	queryTimestamps       []time.Time // sliding window of bridge query times
+	queryTimestamps       []time.Time // sliding window of agent query times
 	lowRowStreakCount      int         // consecutive queries with ≤1 row result
 	rateLimitTriggered    bool        // true when brute-force was detected
 	rateLimitMessage      string      // message shown in UI
@@ -102,20 +102,6 @@ func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 		SessionToken:    generateToken(24),
 		stateEvent:      make(chan struct{}, 1),
 	}
-
-	app.Bridge = NewTrustedBridgeServer(
-		BridgeCallbacks{
-			Status:       app.bridgeStatus,
-			RunQuery: func(task, queryText, mode string) map[string]any {
-				return app.bridgeRunQuery(task, queryText, mode, true)
-			},
-			ApplyAnalysis: app.bridgeApplyAnalysis,
-			ClearSession: app.bridgeClearSession,
-			PullNote:     app.bridgePullNote,
-		},
-		DefaultBridgeHost,
-		DefaultBridgePort,
-	)
 
 	return app
 }
@@ -224,7 +210,7 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"query_state":      app.QueryState,
 		"query_state_text": app.QueryStateText,
 		"security_hint":    app.securityHint(),
-		"bridge_info":      fmt.Sprintf("Контроллер: %s:%d", DefaultBridgeHost, DefaultBridgePort),
+		"bridge_info":      fmt.Sprintf("MCP: http://%s:%d/mcp", DefaultWebHost, DefaultWebPort),
 		"result": map[string]any{
 			"headers":           app.ResultHeaders,
 			"row_count":         len(app.ResultRows),
@@ -250,12 +236,12 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"query_running":        app.queryRunning,
 		"has_saved_settings":   app.HasSavedSettings,
 		"has_saved_token":      app.ConnectedToken != "",
-		"defaults_force_mask":  app.Config.Defaults.ForceMaskFields,
 		"defaults_allow_plain": app.Config.Defaults.AllowPlainFields,
 		"excluded_fields":        app.ExcludedFields,
 		"persistent_allow_plain": app.PersistentAllowPlain,
 		"persistent_force_mask":  app.PersistentForceMask,
-		"auto_send_to_agent":   app.AutoSendToAgent,
+		"auto_send_to_agent":     app.AutoSendToAgent,
+		"skip_numeric_values":    app.SkipNumericValues,
 		"approval_pending":     false,
 		"data_version":         app.dataVersion,
 		"query_version":        app.queryVersion,
@@ -304,6 +290,7 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 		if len(friendly) > 150 {
 			friendly = friendly[:150]
 		}
+		app.ConnectionVerified = false
 		app.StatusText = "Ошибка: " + friendly
 		app.QueryState = "error"
 		app.QueryStateText = "Ошибка"
@@ -353,8 +340,8 @@ func (app *TrustedWebApp) HandleGetSettings() map[string]any {
 		"privacy_numeric_threshold":   app.Config.Privacy.NumericThreshold,
 		"privacy_show_masked":         app.Config.Privacy.ShowMaskedDataInViewer,
 		"defaults_preview_chars":      app.Config.Defaults.ResultPreviewChars,
-		"defaults_auto_execute":       app.Config.Defaults.ExecuteWithoutConfirmation,
-		"defaults_force_mask_fields":  app.Config.Defaults.ForceMaskFields,
+		"defaults_auto_send":          app.Config.Defaults.AutoSendToAgent,
+		"defaults_skip_numeric":       app.Config.Defaults.SkipNumericValues,
 		"defaults_allow_plain_fields": app.Config.Defaults.AllowPlainFields,
 		"has_saved_settings":          app.HasSavedSettings,
 		"allow_plain_keywords":        AllowPlainKeywordsCSV(),
@@ -393,10 +380,10 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 			"show_masked_data_in_viewer": getBoolField(data, "privacy_show_masked"),
 		},
 		"defaults": map[string]any{
-			"result_preview_chars":         getIntField(data, "defaults_preview_chars", 4000),
-			"execute_without_confirmation": getBoolField(data, "defaults_auto_execute"),
-			"force_mask_fields":            getStringFieldDefault(data, "defaults_force_mask_fields", ""),
-			"allow_plain_fields":           getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
+			"result_preview_chars": getIntField(data, "defaults_preview_chars", 4000),
+			"auto_send_to_agent":   getBoolField(data, "defaults_auto_send"),
+			"skip_numeric_values":  getBoolField(data, "defaults_skip_numeric"),
+			"allow_plain_fields":   getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
 		},
 		"auth": map[string]any{
 			"token": firstNonEmpty(getStringFieldDefault(data, "mcp_token", ""), app.ConnectedToken),
@@ -411,6 +398,8 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 	app.Config = newConfig
 	app.Runtime = NewTrustedGatewayRuntime(newConfig)
 	app.ConnectedURL = newConfig.Mcp.URL
+	app.AutoSendToAgent = newConfig.Defaults.AutoSendToAgent
+	app.SkipNumericValues = newConfig.Defaults.SkipNumericValues
 	if authMap, ok := settings["auth"].(map[string]any); ok {
 		if tok, ok := authMap["token"].(string); ok && tok != "" {
 			app.ConnectedToken = tok
@@ -439,6 +428,31 @@ func (app *TrustedWebApp) HandleResetSettings() map[string]any {
 	return map[string]any{"ok": true}
 }
 
+// HandleExportSettings returns current settings as a JSON-serializable map (without auth token).
+func (app *TrustedWebApp) HandleExportSettings() map[string]any {
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	return map[string]any{
+		"mcp": map[string]any{
+			"url":                      app.Config.Mcp.URL,
+			"timeout_seconds":          app.Config.Mcp.TimeoutSeconds,
+			"sse_read_timeout_seconds": app.Config.Mcp.SSEReadTimeoutSeconds,
+			"tools":                    app.Config.Mcp.Tools,
+		},
+		"privacy": map[string]any{
+			"alias_length":               app.Config.Privacy.AliasLength,
+			"numeric_threshold":          app.Config.Privacy.NumericThreshold,
+			"show_masked_data_in_viewer": app.Config.Privacy.ShowMaskedDataInViewer,
+		},
+		"defaults": map[string]any{
+			"result_preview_chars": app.Config.Defaults.ResultPreviewChars,
+			"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
+			"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
+			"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
+		},
+	}
+}
+
 // HandleImportSettings imports settings from a config.json-style dict.
 func (app *TrustedWebApp) HandleImportSettings(data map[string]any) map[string]any {
 	app.mu.Lock()
@@ -457,6 +471,8 @@ func (app *TrustedWebApp) HandleImportSettings(data map[string]any) map[string]a
 	app.Config = newConfig
 	app.Runtime = NewTrustedGatewayRuntime(newConfig)
 	app.ConnectedURL = newConfig.Mcp.URL
+	app.AutoSendToAgent = newConfig.Defaults.AutoSendToAgent
+	app.SkipNumericValues = newConfig.Defaults.SkipNumericValues
 	if token != "" {
 		app.ConnectedToken = token
 	}
@@ -560,6 +576,7 @@ func (app *TrustedWebApp) remaskLocked(session *TrustedSession) {
 	rows := app.filterExcludedColumns(session.DisplayRows)
 
 	sanitizer := app.Runtime.runtimeSanitizer(app.ConnectedToken)
+	sanitizer.skipNumeric = app.SkipNumericValues
 	sanitized := sanitizer.SanitizeRows(rows, app.mergedForceMask(), app.mergedAllowPlain())
 
 	session.MaskedRows = sanitized.MaskedRows
@@ -681,6 +698,7 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 	app.queryRunning = true
 	forceMask := app.mergedForceMask()
 	allowPlain := app.mergedAllowPlain()
+	skipNumeric := app.SkipNumericValues
 	runtime := app.Runtime
 	app.notify()
 	app.mu.Unlock()
@@ -700,6 +718,7 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 			mode,
 			forceMask,
 			allowPlain,
+			skipNumeric,
 		)
 		ch <- queryResult{session: s, err: e}
 	}()
@@ -1051,12 +1070,15 @@ func (app *TrustedWebApp) applyFilteredBundle(rawIndices []any) {
 	for i, idx := range indices {
 		filteredMasked[i] = session.MaskedRows[idx]
 	}
-	// Temporarily swap masked rows to regenerate bundle, then restore
+	// Temporarily swap masked rows to build filtered bundle, then restore full rows.
+	// cachedBundle must be cleared both before (to force recompute with filtered rows)
+	// and after (to prevent stale filtered cache from being returned on subsequent calls).
 	origMasked := session.MaskedRows
 	session.MaskedRows = filteredMasked
-	session.cachedBundle = "" // invalidate cache
+	session.cachedBundle = ""
 	app.BundleText = MaskedBundle(session)
 	session.MaskedRows = origMasked
+	session.cachedBundle = "" // clear filtered cache so next call recomputes from full rows
 }
 
 func extractHeadersFromRows(rows []map[string]any) []string {
@@ -1099,7 +1121,7 @@ func csvFields(raw string) map[string]bool {
 }
 
 func (app *TrustedWebApp) mergedForceMask() map[string]bool {
-	combined := csvFields(app.Config.Defaults.ForceMaskFields)
+	combined := make(map[string]bool)
 	for k := range csvFields(app.PersistentForceMask) {
 		combined[k] = true
 	}
@@ -1135,7 +1157,7 @@ func (app *TrustedWebApp) Shutdown() {
 	app.ConnectedToken = ""
 	app.ConnectionVerified = false
 	app.mu.Unlock()
-	app.Bridge.Stop()
+	// Bridge removed — MCP server handles agent communication
 }
 
 // ── HTTP Server ─────────────────────────────────────────────────
@@ -1167,12 +1189,17 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/api/theme", ws.handleAPITheme)
 	mux.HandleFunc("/api/settings/reset", ws.handleAPISettingsReset)
 	mux.HandleFunc("/api/settings/import", ws.handleAPISettingsImport)
-	mux.HandleFunc("/api/bridge_secret", ws.handleAPIBridgeSecret)
-	mux.HandleFunc("/api/remask", ws.handleAPIRemask)
+	mux.HandleFunc("/api/settings/export", ws.handleAPISettingsExport)
+mux.HandleFunc("/api/remask", ws.handleAPIRemask)
 	mux.HandleFunc("/api/set_whitelist", ws.handleAPISetWhitelist)
 	mux.HandleFunc("/api/exclude_fields", ws.handleAPIExcludeFields)
 	mux.HandleFunc("/api/approve_send", ws.handleAPIApproveSend)
 	mux.HandleFunc("/api/auto_send", ws.handleAPIAutoSend)
+	mux.HandleFunc("/api/skip_numeric", ws.handleAPISkipNumeric)
+
+	// MCP server (streamable HTTP) — no auth, localhost only
+	mcpSrv := NewMcpServer(app)
+	mux.HandleFunc("/mcp", mcpSrv.handleMcp)
 
 	ws.server = &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", host, port),
@@ -1513,6 +1540,17 @@ func (ws *WebHTTPServer) handleAPISettingsReset(w http.ResponseWriter, r *http.R
 	respondJSON(w, 200, ws.App.HandleResetSettings())
 }
 
+func (ws *WebHTTPServer) handleAPISettingsExport(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	result := ws.App.HandleExportSettings()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=config.json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (ws *WebHTTPServer) handleAPISettingsImport(w http.ResponseWriter, r *http.Request) {
 	if !ws.checkToken(r) {
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
@@ -1568,14 +1606,6 @@ func (ws *WebHTTPServer) handleAPIExcludeFields(w http.ResponseWriter, r *http.R
 	}
 	excluded := getStringFieldDefault(data, "excluded_fields", "")
 	respondJSON(w, 200, ws.App.HandleExcludeFields(excluded))
-}
-
-func (ws *WebHTTPServer) handleAPIBridgeSecret(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, map[string]any{"bridge_secret": ws.App.Bridge.BridgeSecret})
 }
 
 func (ws *WebHTTPServer) handleAPIApproveSend(w http.ResponseWriter, r *http.Request) {
@@ -1636,6 +1666,29 @@ func (ws *WebHTTPServer) handleAPIAutoSend(w http.ResponseWriter, r *http.Reques
 		ws.App.resetRateLimit()
 	}
 	ws.App.notify()
+	ws.App.mu.Unlock()
+	respondJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (ws *WebHTTPServer) handleAPISkipNumeric(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	enabled, _ := data["enabled"].(bool)
+	ws.App.mu.Lock()
+	ws.App.SkipNumericValues = enabled
+	session := ws.App.CurrentSession
+	if session != nil && session.Mode == "masked" && len(session.DisplayRows) > 0 {
+		ws.App.remaskLocked(session)
+	} else {
+		ws.App.notify()
+	}
 	ws.App.mu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
 }
@@ -1714,8 +1767,8 @@ var importWhitelist = map[string]map[string]bool{
 		"numeric_threshold": true, "show_masked_data_in_viewer": true,
 	},
 	"defaults": {
-		"result_preview_chars": true, "execute_without_confirmation": true,
-		"force_mask_fields": true, "allow_plain_fields": true,
+		"result_preview_chars": true, "auto_send_to_agent": true,
+		"skip_numeric_values": true, "allow_plain_fields": true,
 	},
 	"auth": {"token": true},
 }
