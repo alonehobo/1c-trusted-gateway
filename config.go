@@ -30,6 +30,7 @@ type DefaultsConfig struct {
 	AutoSendToAgent    bool   `json:"auto_send_to_agent,omitempty"`
 	SkipNumericValues  bool   `json:"skip_numeric_values,omitempty"`
 	AllowPlainFields   string `json:"allow_plain_fields,omitempty"`
+	ForceMaskFields    string `json:"force_mask_fields,omitempty"`
 }
 
 // AppConfig is the top-level application configuration.
