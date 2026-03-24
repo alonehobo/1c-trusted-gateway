@@ -122,6 +122,10 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 				"- Используй литеральные даты: ДАТАВРЕМЯ(2025,1,1), НЕ параметры &НачалоПериода.\n" +
 				"- НЕ используй ВЫБРАТЬ * — бери только нужные для анализа поля. Минимум полей = меньше рисков и быстрее.\n" +
 				"- НЕ пытайся обойти маскировку или получить реальные данные — это нарушает политику безопасности. Работай только с псевдонимами.\n\n" +
+				"БЕЛЫЙ СПИСОК ПОЛЕЙ:\n" +
+				"Если для анализа критически важно видеть незашифрованные значения полей (например, Статус, ВидДвижения, " +
+				"Проведен и другие перечисления/булевы), а они замаскированы — попроси пользователя добавить эти поля " +
+				"в белый список через интерфейс шлюза. Не пытайся угадывать значения по псевдонимам.\n\n" +
 				"РУЧНОЙ РЕЖИМ:\n" +
 				"Если ответ содержит status='awaiting_approval', пользователь проверяет данные перед отправкой. " +
 				"Жди одобрения и забирай данные через gateway_pull_note.\n\n" +
@@ -147,6 +151,8 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 			"description": "Отправляет текст анализа обратно в шлюз для расшифровки псевдонимов. " +
 				"Шлюз заменит маскированные идентификаторы (Менеджер_abc123 и т.п.) на реальные значения " +
 				"и покажет результат пользователю в UI.\n\n" +
+				"ФОРМАТ: Оформляй анализ в Markdown — используй заголовки (## / ###), таблицы, списки, " +
+				"**жирный** текст для акцентов, `код` для имён полей. UI поддерживает полный рендеринг Markdown.\n\n" +
 				"ВАЖНО: Используй в тексте анализа именно те псевдонимы, которые вернул gateway_query. " +
 				"НЕ пытайся угадать или подставить реальные значения — ты их не знаешь, " +
 				"шлюз расшифрует псевдонимы автоматически.",
@@ -155,7 +161,7 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 				"properties": map[string]any{
 					"analysis_text": map[string]any{
 						"type":        "string",
-						"description": "Текст анализа с замаскированными псевдонимами из результата gateway_query",
+						"description": "Текст анализа в формате Markdown с замаскированными псевдонимами из результата gateway_query. Используй заголовки, таблицы, списки и форматирование.",
 					},
 					"session_id": map[string]any{
 						"type":        "string",
@@ -173,6 +179,29 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 			"inputSchema": map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
+			},
+		},
+		{
+			"name": "gateway_execute_code",
+			"description": "Выполняет BSL-код в 1С через Trusted Gateway (только чтение — транзакция всегда откатывается). " +
+				"Результат автоматически маскируется NER-правилами шлюза: ФИО, ИНН, названия организаций, телефоны, email " +
+				"заменяются псевдонимами. Числовые значения проходят открыто.\n\n" +
+				"Результат возвращай через переменную Результат (строка) или РезультатJSON (JSON-строка).\n\n" +
+				"ФОРМАТ: Оформляй анализ результата в Markdown — заголовки, таблицы, списки. " +
+				"Используй псевдонимы из результата в gateway_apply_analysis.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task": map[string]any{
+						"type":        "string",
+						"description": "Краткое описание задачи/цели выполнения кода",
+					},
+					"code": map[string]any{
+						"type": "string",
+						"description": "BSL-код для выполнения. Результат верни через Результат или РезультатJSON.",
+					},
+				},
+				"required": []string{"task", "code"},
 			},
 		},
 		{
@@ -194,6 +223,8 @@ func (ms *McpServer) callTool(id any, toolName string, args map[string]any) map[
 		return ms.toolQuery(id, args)
 	case "gateway_apply_analysis":
 		return ms.toolApplyAnalysis(id, args)
+	case "gateway_execute_code":
+		return ms.toolExecuteCode(id, args)
 	case "gateway_pull_note":
 		return ms.toolPullNote(id)
 	case "gateway_clear_session":
@@ -288,6 +319,52 @@ func (ms *McpServer) toolApplyAnalysis(id any, args map[string]any) map[string]a
 	return ms.rpcResult(id, map[string]any{
 		"content": []map[string]any{
 			{"type": "text", "text": "Анализ отправлен в шлюз и расшифрован. Пользователь видит результат в UI."},
+		},
+	})
+}
+
+func (ms *McpServer) toolExecuteCode(id any, args map[string]any) map[string]any {
+	task, _ := args["task"].(string)
+	code, _ := args["code"].(string)
+	if code == "" {
+		return ms.toolError(id, "code is required")
+	}
+	if task == "" {
+		task = "MCP execute_code"
+	}
+
+	result := ms.app.bridgeExecuteCode(task, code)
+
+	okVal, _ := result["ok"].(bool)
+	if !okVal {
+		errMsg, _ := result["message"].(string)
+		if errMsg == "" {
+			errMsg, _ = result["error"].(string)
+		}
+		if errMsg == "" {
+			errMsg = "Execute code failed"
+		}
+		return ms.toolError(id, errMsg)
+	}
+
+	maskedResult, _ := result["masked_result"].(string)
+	if maskedResult == "" {
+		maskedResult = "(пустой результат)"
+	}
+
+	// Build response with metadata
+	payload := map[string]any{
+		"session_id":      result["session_id"],
+		"task":            task,
+		"mode":            "code_masked",
+		"masked_entities": result["masked_entities"],
+		"result":          maskedResult,
+	}
+	data, _ := json.MarshalIndent(payload, "", "  ")
+
+	return ms.rpcResult(id, map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": string(data)},
 		},
 	})
 }

@@ -247,6 +247,7 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"query_version":        app.queryVersion,
 		"rate_limit_triggered": app.rateLimitTriggered,
 		"rate_limit_message":   app.rateLimitMessage,
+		"ner_status":           nerRulesStatus(app.Runtime.NerRules),
 	}
 }
 
@@ -343,6 +344,7 @@ func (app *TrustedWebApp) HandleGetSettings() map[string]any {
 		"defaults_auto_send":          app.Config.Defaults.AutoSendToAgent,
 		"defaults_skip_numeric":       app.Config.Defaults.SkipNumericValues,
 		"defaults_allow_plain_fields": app.Config.Defaults.AllowPlainFields,
+		"defaults_force_mask_fields":  app.Config.Defaults.ForceMaskFields,
 		"has_saved_settings":          app.HasSavedSettings,
 		"allow_plain_keywords":        AllowPlainKeywordsCSV(),
 	}
@@ -384,6 +386,7 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 			"auto_send_to_agent":   getBoolField(data, "defaults_auto_send"),
 			"skip_numeric_values":  getBoolField(data, "defaults_skip_numeric"),
 			"allow_plain_fields":   getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
+			"force_mask_fields":    getStringFieldDefault(data, "defaults_force_mask_fields", ""),
 		},
 		"auth": map[string]any{
 			"token": firstNonEmpty(getStringFieldDefault(data, "mcp_token", ""), app.ConnectedToken),
@@ -449,6 +452,7 @@ func (app *TrustedWebApp) HandleExportSettings() map[string]any {
 			"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
 			"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
 			"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
+			"force_mask_fields":    app.Config.Defaults.ForceMaskFields,
 		},
 	}
 }
@@ -865,6 +869,61 @@ func (app *TrustedWebApp) bridgeApplyAnalysis(sessionID *string, analysisText st
 	}
 }
 
+func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
+	app.mu.RLock()
+	url := app.ConnectedURL
+	token := app.ConnectedToken
+	verified := app.ConnectionVerified
+	app.mu.RUnlock()
+
+	if !verified || url == "" {
+		return map[string]any{"ok": false, "message": "Нет подключения к 1С"}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	session, err := app.Runtime.ExecuteCode(ctx, url, token, task, code)
+	if err != nil {
+		app.onQueryFailed(task, "code_masked", err.Error())
+		return map[string]any{"ok": false, "message": err.Error()}
+	}
+
+	// Update UI state
+	app.mu.Lock()
+	app.CurrentSession = session
+	app.TaskText = session.Task
+	if app.TaskText == "" {
+		app.TaskText = "Выполнение кода"
+	}
+	app.queryVersion++
+	app.QueryPreview = session.CodeText
+	app.RawResponse = session.RawResultPreview
+	// Show code results in analysis panels: masked (left), original (right)
+	app.AnalysisMasked = session.MaskedResult
+	app.AnalysisDisplay = session.RawResultPreview
+	app.BundleText = ""
+	app.ActiveTab = "analysis"
+	app.StatusText = fmt.Sprintf("Код выполнен. Замаскировано сущностей: %d", len(session.AliasToOriginal))
+
+	// Clear row-related state (this is free text, not tabular)
+	app.MaskedColumns = nil
+	app.UnmaskedColumns = nil
+	app.PlaceholderText = ""
+	app.PlaceholderError = false
+	app.RowsTruncated = false
+
+	app.notify()
+	app.mu.Unlock()
+
+	return map[string]any{
+		"ok":              true,
+		"session_id":      session.SessionID,
+		"masked_result":   session.MaskedResult,
+		"masked_entities": len(session.AliasToOriginal),
+	}
+}
+
 func (app *TrustedWebApp) bridgeClearSession() map[string]any {
 	app.mu.Lock()
 	app.clearSessionLocked()
@@ -1122,6 +1181,10 @@ func csvFields(raw string) map[string]bool {
 
 func (app *TrustedWebApp) mergedForceMask() map[string]bool {
 	combined := make(map[string]bool)
+	// From saved settings
+	for k := range csvFields(app.Config.Defaults.ForceMaskFields) {
+		combined[k] = true
+	}
 	for k := range csvFields(app.PersistentForceMask) {
 		combined[k] = true
 	}
@@ -1184,6 +1247,10 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/api/cancel_query", ws.handleAPICancelQuery)
 	mux.HandleFunc("/api/apply_analysis", ws.handleAPIApplyAnalysis)
 	mux.HandleFunc("/api/clear_session", ws.handleAPIClearSession)
+	mux.HandleFunc("/api/execute_code", ws.handleAPIExecuteCode)
+	mux.HandleFunc("/api/ner/export_template", ws.handleAPINerExportTemplate)
+	mux.HandleFunc("/api/ner/reload", ws.handleAPINerReload)
+	mux.HandleFunc("/api/ner/status", ws.handleAPINerStatus)
 	mux.HandleFunc("/api/submit_note", ws.handleAPISubmitNote)
 	mux.HandleFunc("/api/clear_note", ws.handleAPIClearNote)
 	mux.HandleFunc("/api/theme", ws.handleAPITheme)
@@ -1691,6 +1758,72 @@ func (ws *WebHTTPServer) handleAPISkipNumeric(w http.ResponseWriter, r *http.Req
 	}
 	ws.App.mu.Unlock()
 	respondJSON(w, 200, map[string]any{"ok": true})
+}
+
+// ── Execute Code API ────────────────────────────────────────────
+
+func (ws *WebHTTPServer) handleAPIExecuteCode(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	task := getStringFieldDefault(data, "task", "")
+	code := getStringFieldDefault(data, "code", "")
+	if code == "" {
+		respondJSON(w, 400, map[string]any{"error": "code is required"})
+		return
+	}
+	result := ws.App.bridgeExecuteCode(task, code)
+	respondJSON(w, 200, result)
+}
+
+// ── NER Rules API ──────────────────────────────────────────────
+
+func (ws *WebHTTPServer) handleAPINerExportTemplate(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	path := NerRulesPath()
+	if err := ExportNerTemplate(path); err != nil {
+		respondJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	respondJSON(w, 200, map[string]any{"ok": true, "path": path})
+}
+
+func (ws *WebHTTPServer) handleAPINerReload(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	path := NerRulesPath()
+	rules, err := LoadNerRules(path)
+	if err != nil {
+		respondJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	ws.App.Runtime.NerRules = rules
+	status := nerRulesStatus(rules)
+	respondJSON(w, 200, map[string]any{"ok": true, "status": status})
+}
+
+func (ws *WebHTTPServer) handleAPINerStatus(w http.ResponseWriter, r *http.Request) {
+	rules := ws.App.Runtime.NerRules
+	respondJSON(w, 200, map[string]any{"ok": true, "status": nerRulesStatus(rules)})
+}
+
+func nerRulesStatus(rules *NerRules) string {
+	if rules == nil {
+		return "Файл ner_rules.json не найден"
+	}
+	return fmt.Sprintf("Загружено: %d контекстных правил, %d keyword-масок, %d custom regex",
+		len(rules.ContextPatterns), len(rules.AlwaysMaskKeywords), len(rules.CustomRegex))
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

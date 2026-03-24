@@ -14,6 +14,10 @@ var (
 	numericPattern = regexp.MustCompile(`^[+-]?\d+(?:\.\d+)?$`)
 	wordPattern    = regexp.MustCompile(`[A-Za-zА-Яа-яЁё0-9]+`)
 
+	// sensitiveFieldKeywords — fields that are always masked even when skipNumeric is on.
+	// Only explicit whitelist can override this.
+	sensitiveFieldKeywords = []string{"инн", "кпп", "снилс", "огрн", "огрнип", "бик", "серия", "серии", "серий", "inn", "kpp", "snils", "serial"}
+
 	// DefaultAllowPlainKeywords is empty — all fields are masked by default.
 	// Users add fields to the white-list explicitly via UI or settings.
 	DefaultAllowPlainKeywords = []string{}
@@ -145,8 +149,9 @@ func (ds *DataSanitizer) maskValue(
 		return value
 	}
 
-	// Skip numeric values if the option is enabled
-	if ds.skipNumeric && isRealNumber(value) {
+	// Skip numeric values if the option is enabled,
+	// but never for sensitive fields (ИНН, КПП, etc.) — those require explicit whitelist
+	if ds.skipNumeric && !isSensitiveField(normalizedName) && isRealNumber(value) {
 		return value
 	}
 
@@ -267,6 +272,21 @@ func prefixFor(fieldName string) string {
 	return string(runes)
 }
 
+// isSensitiveField checks if the field name contains ИНН, КПП or similar identifiers
+// that must always be masked even when skipNumeric is on.
+func isSensitiveField(normalizedFieldName string) bool {
+	for _, kw := range sensitiveFieldKeywords {
+		if strings.Contains(normalizedFieldName, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// maxNumericStringLen is the maximum length of a digit string to consider it a real number.
+// Longer strings are treated as codes/identifiers and get masked.
+const maxNumericStringLen = 15
+
 // isRealNumber checks whether a value looks like a real number (price, amount, quantity)
 // as opposed to a phone number, document number, or other digit-based identifier.
 // Rules:
@@ -274,6 +294,7 @@ func prefixFor(fieldName string) string {
 //   - String values: strip thousand separators (spaces, nbsp), allow one "." or "," as decimal
 //   - Reject if there are any characters besides digits, one separator, leading +/-, spaces
 //   - Reject leading zeros like "007", "00123" (but allow "0", "0.5", "0,12")
+//   - Reject digit strings longer than 15 characters (likely codes/identifiers)
 func isRealNumber(value any) bool {
 	switch value.(type) {
 	case float64, float32, int, int8, int16, int32, int64,
@@ -310,6 +331,12 @@ func isRealNumber(value any) bool {
 		digits = digits[1:]
 	}
 	if len(digits) > 1 && digits[0] == '0' && digits[1] != '.' {
+		return false
+	}
+
+	// Reject overly long digit strings — likely codes or identifiers
+	digitOnly := strings.ReplaceAll(digits, ".", "")
+	if len(digitOnly) > maxNumericStringLen {
 		return false
 	}
 
@@ -364,4 +391,311 @@ func sortedKeys(m map[string]bool) []string {
 // AllowPlainKeywordsCSV returns the default allow-list keywords as a comma-separated string.
 func AllowPlainKeywordsCSV() string {
 	return strings.Join(DefaultAllowPlainKeywords, ", ")
+}
+
+// ─── NER-based free text masking for execute_code ───────────────
+
+// nerMatch represents a single detected entity in text.
+type nerMatch struct {
+	start       int
+	end         int
+	original    string
+	aliasPrefix string
+}
+
+// Built-in NER regex patterns (always active).
+var (
+	// СНИЛС: 123-456-789 01
+	reSnils = regexp.MustCompile(`\b\d{3}-\d{3}-\d{3}\s?\d{2}\b`)
+
+	// Phone: +7/8 (xxx) xxx-xx-xx and variants
+	rePhone = regexp.MustCompile(`(?:\+7|8)[\s-]?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}`)
+
+	// Email
+	reEmail = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
+
+	// БИК: starts with 04, 9 digits total
+	reBik = regexp.MustCompile(`\b04\d{7}\b`)
+
+	// ОГРН (13 digits) / ОГРНИП (15 digits)
+	reOgrn = regexp.MustCompile(`\b\d{13}\b`)
+	reOgrnip = regexp.MustCompile(`\b\d{15}\b`)
+
+	// ИНН with context: "ИНН 7701234567" or "ИНН: 7701234567"
+	reInnCtx = regexp.MustCompile(`(?i)ИНН[\s:=]*(\d{10,12})\b`)
+
+	// КПП with context
+	reKppCtx = regexp.MustCompile(`(?i)КПП[\s:=]*(\d{9})\b`)
+
+	// Organization: ООО/АО/ИП/... + name in quotes or next words
+	reOrgQuoted = regexp.MustCompile(`(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\s*[""«]([^""»]+)[""»]`)
+	reOrgPlain  = regexp.MustCompile(`(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\s+([А-ЯЁ][а-яёА-ЯЁ\s\-]{1,40})`)
+
+	// ФИО: Иванов И.И. / Иванов И. И.
+	reFioShort = regexp.MustCompile(`[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.`)
+
+	// ФИО full: Иванов Иван Иванович (3rd word ends with -вич/-вна/-ич/-чна)
+	reFioFull = regexp.MustCompile(`[А-ЯЁ][а-яё]{1,30}\s+[А-ЯЁ][а-яё]{1,30}\s+[А-ЯЁ][а-яё]*(вич|вна|ич|чна)\b`)
+
+	// Context value extractor: "Keyword": "value" (JSON), Keyword: value, Keyword = value
+	reCtxJSON  = regexp.MustCompile(`(?i)"%s"\s*:\s*"([^"]+)"`)
+	reCtxColon = regexp.MustCompile(`(?i)%s\s*:\s*(.+?)(?:\n|,|\t|$)`)
+	reCtxEq    = regexp.MustCompile(`(?i)%s\s*=\s*(.+?)(?:\n|,|\t|;|$)`)
+)
+
+// SanitizeFreeText applies NER-based masking to free-form text.
+// Returns the masked text and an alias→original map for later rehydration.
+func SanitizeFreeText(text string, rules *NerRules, salt string, aliasLength int) (string, map[string]string) {
+	if text == "" {
+		return text, nil
+	}
+	if aliasLength <= 0 {
+		aliasLength = 10
+	}
+
+	aliasToOriginal := make(map[string]string)
+	originalToAlias := make(map[string]string)
+	var matches []nerMatch
+
+	// Helper to generate alias
+	makeAlias := func(prefix, value string) string {
+		cacheKey := prefix + "::" + value
+		if cached, ok := originalToAlias[cacheKey]; ok {
+			return cached
+		}
+		base := fmt.Sprintf("%s:%s:%s", prefix, value, salt)
+		hash := sha256.Sum256([]byte(base))
+		digest := fmt.Sprintf("%x", hash[:])
+		if len(digest) > aliasLength {
+			digest = digest[:aliasLength]
+		}
+		alias := prefix + "_" + digest
+		originalToAlias[cacheKey] = alias
+		aliasToOriginal[alias] = value
+		return alias
+	}
+
+	// --- Built-in patterns ---
+
+	// СНИЛС
+	for _, loc := range reSnils.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "СНИЛС"})
+	}
+
+	// Phone
+	for _, loc := range rePhone.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "Телефон"})
+	}
+
+	// Email
+	for _, loc := range reEmail.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "Email"})
+	}
+
+	// БИК
+	for _, loc := range reBik.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "БИК"})
+	}
+
+	// ИНН with context
+	for _, m := range reInnCtx.FindAllStringSubmatchIndex(text, -1) {
+		if m[2] >= 0 && m[3] >= 0 {
+			matches = append(matches, nerMatch{m[2], m[3], text[m[2]:m[3]], "ИНН"})
+		}
+	}
+
+	// КПП with context
+	for _, m := range reKppCtx.FindAllStringSubmatchIndex(text, -1) {
+		if m[2] >= 0 && m[3] >= 0 {
+			matches = append(matches, nerMatch{m[2], m[3], text[m[2]:m[3]], "КПП"})
+		}
+	}
+
+	// ОГРН/ОГРНИП (only if near context word)
+	for _, loc := range reOgrnip.FindAllStringIndex(text, -1) {
+		ctx := safeSubstr(text, loc[0]-20, loc[0])
+		if strings.Contains(strings.ToLower(ctx), "огрн") {
+			matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "ОГРНИП"})
+		}
+	}
+	for _, loc := range reOgrn.FindAllStringIndex(text, -1) {
+		ctx := safeSubstr(text, loc[0]-20, loc[0])
+		if strings.Contains(strings.ToLower(ctx), "огрн") {
+			matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "ОГРН"})
+		}
+	}
+
+	// Organizations (quoted)
+	for _, loc := range reOrgQuoted.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "Организация"})
+	}
+
+	// Organizations (plain, only if not already covered by quoted)
+	for _, loc := range reOrgPlain.FindAllStringIndex(text, -1) {
+		orig := strings.TrimSpace(text[loc[0]:loc[1]])
+		matches = append(matches, nerMatch{loc[0], loc[0] + len(orig), orig, "Организация"})
+	}
+
+	// ФИО short (Иванов И.И.)
+	for _, loc := range reFioShort.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "ФИО"})
+	}
+
+	// ФИО full (Иванов Иван Иванович)
+	for _, loc := range reFioFull.FindAllStringIndex(text, -1) {
+		matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], "ФИО"})
+	}
+
+	// --- Context patterns from NER rules ---
+	if rules != nil {
+		for _, cp := range rules.ContextPatterns {
+			prefix := cp.AliasPrefix
+			if prefix == "" {
+				prefix = cp.Keyword
+			}
+			ctxMatches := findContextValues(text, cp.Keyword)
+			for _, cm := range ctxMatches {
+				matches = append(matches, nerMatch{cm.start, cm.end, cm.original, prefix})
+			}
+		}
+
+		// Custom regex
+		for _, cr := range rules.CustomRegex {
+			re, err := regexp.Compile(cr.Pattern)
+			if err != nil {
+				continue
+			}
+			for _, loc := range re.FindAllStringIndex(text, -1) {
+				matches = append(matches, nerMatch{loc[0], loc[1], text[loc[0]:loc[1]], cr.AliasPrefix})
+			}
+		}
+	}
+
+	// --- Resolve overlaps: longer matches win ---
+	matches = resolveOverlaps(matches)
+
+	// --- Replace from end to start ---
+	// Sort by position descending
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].start > matches[j].start
+	})
+
+	// Sensitive prefixes: numeric values must still be masked for these.
+	sensitiveNerPrefixes := map[string]bool{
+		"ИНН": true, "КПП": true, "СНИЛС": true, "БИК": true,
+		"ОГРН": true, "ОГРНИП": true, "РасчСчет": true, "КоррСчет": true,
+	}
+
+	result := text
+	for _, m := range matches {
+		value := strings.TrimSpace(m.original)
+		if value == "" {
+			continue
+		}
+		// Skip numeric values UNLESS they are sensitive identifiers
+		if looksNumeric(value) && !sensitiveNerPrefixes[m.aliasPrefix] {
+			continue
+		}
+		alias := makeAlias(m.aliasPrefix, value)
+		result = result[:m.start] + alias + result[m.end:]
+	}
+
+	return result, aliasToOriginal
+}
+
+// findContextValues finds values after a keyword in various formats (JSON, colon, equals).
+func findContextValues(text, keyword string) []nerMatch {
+	var results []nerMatch
+
+	// JSON: "Keyword": "value"
+	reJSON, err := regexp.Compile(fmt.Sprintf(`(?i)"%s"\s*:\s*"([^"]+)"`, regexp.QuoteMeta(keyword)))
+	if err == nil {
+		for _, m := range reJSON.FindAllStringSubmatchIndex(text, -1) {
+			if m[2] >= 0 && m[3] >= 0 {
+				val := strings.TrimSpace(text[m[2]:m[3]])
+				if val != "" && !looksNumeric(val) {
+					results = append(results, nerMatch{m[2], m[3], val, ""})
+				}
+			}
+		}
+	}
+
+	// Colon: Keyword: value (until newline, comma, tab)
+	reCol, err := regexp.Compile(fmt.Sprintf(`(?i)%s\s*:\s*([^\n,\t;]{2,60})`, regexp.QuoteMeta(keyword)))
+	if err == nil {
+		for _, m := range reCol.FindAllStringSubmatchIndex(text, -1) {
+			if m[2] >= 0 && m[3] >= 0 {
+				val := strings.TrimSpace(text[m[2]:m[3]])
+				// Skip if it starts with a quote (already handled by JSON pattern)
+				if val != "" && !strings.HasPrefix(val, "\"") && !looksNumeric(val) {
+					results = append(results, nerMatch{m[2], m[2] + len(val), val, ""})
+				}
+			}
+		}
+	}
+
+	// Equals: Keyword = value
+	reEq, err := regexp.Compile(fmt.Sprintf(`(?i)%s\s*=\s*([^\n,\t;]{2,60})`, regexp.QuoteMeta(keyword)))
+	if err == nil {
+		for _, m := range reEq.FindAllStringSubmatchIndex(text, -1) {
+			if m[2] >= 0 && m[3] >= 0 {
+				val := strings.TrimSpace(text[m[2]:m[3]])
+				if val != "" && !strings.HasPrefix(val, "\"") && !looksNumeric(val) {
+					results = append(results, nerMatch{m[2], m[2] + len(val), val, ""})
+				}
+			}
+		}
+	}
+
+	return results
+}
+
+// resolveOverlaps removes overlapping matches, keeping longer ones.
+func resolveOverlaps(matches []nerMatch) []nerMatch {
+	if len(matches) <= 1 {
+		return matches
+	}
+
+	// Sort by length descending (longer matches win), then by position
+	sort.Slice(matches, func(i, j int) bool {
+		li := matches[i].end - matches[i].start
+		lj := matches[j].end - matches[j].start
+		if li != lj {
+			return li > lj
+		}
+		return matches[i].start < matches[j].start
+	})
+
+	var result []nerMatch
+	occupied := make([]bool, 0) // simple interval check
+
+	for _, m := range matches {
+		overlaps := false
+		for _, existing := range result {
+			if m.start < existing.end && m.end > existing.start {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			result = append(result, m)
+		}
+	}
+	_ = occupied
+
+	return result
+}
+
+// safeSubstr returns a substring with bounds checking.
+func safeSubstr(s string, start, end int) string {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(s) {
+		end = len(s)
+	}
+	if start >= end {
+		return ""
+	}
+	return s[start:end]
 }

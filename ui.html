@@ -350,6 +350,30 @@ input::placeholder { color: var(--text-tertiary); }
 textarea.text-panel { outline: none; width: 100%; resize: none; }
 textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--input-focus); }
 
+/* ─── Markdown in Analysis Panels ─── */
+.text-panel.md-rendered { white-space: normal; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.6; }
+.md-rendered h1, .md-rendered h2, .md-rendered h3, .md-rendered h4 { color: var(--accent); margin: 1em 0 0.5em; font-weight: 600; }
+.md-rendered h1 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-rendered h2 { font-size: 1.2em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.md-rendered h3 { font-size: 1.05em; }
+.md-rendered p { margin: 0.5em 0; }
+.md-rendered ul, .md-rendered ol { margin: 0.5em 0; padding-left: 1.5em; }
+.md-rendered li { margin: 0.2em 0; }
+.md-rendered strong { color: var(--text-primary); font-weight: 600; }
+.md-rendered em { color: var(--text-secondary); }
+.md-rendered code { background: rgba(255,255,255,0.06); color: var(--accent); padding: 2px 5px; border-radius: 3px; font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 0.9em; }
+.md-rendered pre { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; margin: 0.5em 0; }
+.md-rendered pre code { background: none; padding: 0; color: var(--text-primary); font-size: 12px; }
+.md-rendered table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 12px; }
+.md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md-rendered th { background: var(--surface); color: var(--accent); font-weight: 600; }
+.md-rendered tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+.md-rendered tr:hover { background: rgba(108,138,255,0.06); }
+.md-rendered blockquote { border-left: 3px solid var(--accent); margin: 0.5em 0; padding: 0.3em 1em; color: var(--text-secondary); background: rgba(108,138,255,0.04); border-radius: 0 var(--radius) var(--radius) 0; }
+.md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+.md-rendered a { color: var(--accent); text-decoration: none; }
+.md-rendered a:hover { text-decoration: underline; }
+
 /* ─── Split Panels ─── */
 .split-h, .split-v { display: flex; flex: 1; min-height: 0; gap: 12px; }
 .split-h { flex-direction: row; }
@@ -655,6 +679,17 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
             </div>
           </fieldset>
 
+          <fieldset class="settings-section">
+            <legend>NER-правила (execute_code)</legend>
+            <div class="settings-row">
+              <span class="settings-label" id="ner-status" style="font-size:12px; color:var(--text-secondary);">Загрузка...</span>
+            </div>
+            <div class="settings-row" style="gap:8px; margin-top:8px;">
+              <button class="btn btn-ghost btn-xs" onclick="nerExportTemplate()">Экспорт шаблона</button>
+              <button class="btn btn-ghost btn-xs" onclick="nerReload()">Перезагрузить правила</button>
+            </div>
+          </fieldset>
+
           <div class="settings-actions">
             <button class="btn btn-primary" onclick="saveSettings()">&#128190; Сохранить</button>
             <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
@@ -868,8 +903,8 @@ function render(s) {
   if (s.result.placeholder && s.result.row_count === 0) showPlaceholder(s.result.placeholder, s.result.placeholder_error);
 
   // Analysis
-  document.getElementById("analysis-masked").textContent = s.analysis_masked || "";
-  document.getElementById("analysis-display").textContent = s.analysis_display || "";
+  renderMarkdownPanel("analysis-masked", s.analysis_masked || "");
+  renderMarkdownPanel("analysis-display", s.analysis_display || "");
 
   // Raw
   // Sync query input from server (agent-submitted query) — don't overwrite if user is typing
@@ -913,6 +948,10 @@ function render(s) {
   if (skipNumericCb.checked !== !!s.skip_numeric_values) {
     skipNumericCb.checked = !!s.skip_numeric_values;
   }
+
+  // NER status
+  const nerEl = document.getElementById("ner-status");
+  if (nerEl && s.ner_status) nerEl.textContent = s.ner_status;
 
   // Unmasked/masked columns indicator — render into both tabs
   const unmaskedCols = (s.masked_result && s.masked_result.unmasked_columns) || [];
@@ -1485,9 +1524,41 @@ function copyAllRows() {
 }
 
 
+function renderMarkdownPanel(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.rawText = text;
+  if (text && typeof marked !== "undefined") {
+    el.innerHTML = marked.parse(text);
+    el.classList.add("md-rendered");
+  } else {
+    el.textContent = text;
+    el.classList.remove("md-rendered");
+  }
+}
+
+function nerExportTemplate() {
+  api("/api/ner/export_template", {}).then(r => {
+    if (r.ok) toast("Шаблон создан: " + r.path);
+    else toast("Ошибка: " + (r.error || "unknown"));
+  });
+}
+
+function nerReload() {
+  api("/api/ner/reload", {}).then(r => {
+    if (r.ok) {
+      toast("Правила загружены");
+      const el = document.getElementById("ner-status");
+      if (el && r.status) el.textContent = r.status;
+    } else {
+      toast("Ошибка: " + (r.error || "unknown"));
+    }
+  });
+}
+
 function copyAnalysis(which) {
   const el = document.getElementById(which === "masked" ? "analysis-masked" : "analysis-display");
-  const t = el ? el.textContent : "";
+  const t = el ? (el.dataset.rawText || el.textContent) : "";
   if (!t) { toast("Нет данных для копирования"); return; }
   navigator.clipboard.writeText(t).then(() => toast("Анализ скопирован"));
 }
@@ -1948,6 +2019,7 @@ fetchState().then(() => {
   }
 });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/ace.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/theme-one_dark.js"></script>
 <script>

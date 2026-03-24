@@ -1,0 +1,110 @@
+{
+  "description": "NER rules for 1C:ERP — generated from metadata: Контрагенты, Партнеры, Сотрудники, ФизическиеЛица, Организации, ДоговорыКонтрагентов, БанковскиеСчета и др.",
+  "context_patterns": [
+    {"keyword": "Контрагент", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Партнер", "type": "org", "alias_prefix": "Партнер"},
+    {"keyword": "Поставщик", "type": "org", "alias_prefix": "Поставщик"},
+    {"keyword": "Покупатель", "type": "org", "alias_prefix": "Покупатель"},
+    {"keyword": "Клиент", "type": "org", "alias_prefix": "Клиент"},
+    {"keyword": "Грузоотправитель", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Грузополучатель", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Принципал", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Комитент", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Комиссионер", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Давалец", "type": "org", "alias_prefix": "Контрагент"},
+    {"keyword": "Переработчик", "type": "org", "alias_prefix": "Контрагент"},
+
+    {"keyword": "Организация", "type": "org", "alias_prefix": "Организация"},
+    {"keyword": "ГоловнаяОрганизация", "type": "org", "alias_prefix": "Организация"},
+    {"keyword": "ОбособленноеПодразделение", "type": "org", "alias_prefix": "Подразделение"},
+
+    {"keyword": "Сотрудник", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Менеджер", "type": "person", "alias_prefix": "Менеджер"},
+    {"keyword": "Ответственный", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Автор", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Руководитель", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Исполнитель", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Кладовщик", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Кассир", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "Подотчетник", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "ПодотчетноеЛицо", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "ТорговыйПредставитель", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "МатериальноОтветственноеЛицо", "type": "person", "alias_prefix": "Сотрудник"},
+    {"keyword": "ФизическоеЛицо", "type": "person", "alias_prefix": "ФизЛицо"},
+    {"keyword": "ФизЛицо", "type": "person", "alias_prefix": "ФизЛицо"},
+    {"keyword": "КонтактноеЛицо", "type": "person", "alias_prefix": "КонтактноеЛицо"},
+
+    {"keyword": "Подразделение", "type": "org", "alias_prefix": "Подразделение"},
+    {"keyword": "ПодразделениеОрганизации", "type": "org", "alias_prefix": "Подразделение"},
+
+    {"keyword": "Склад", "type": "custom", "alias_prefix": "Склад"},
+    {"keyword": "СкладОтправитель", "type": "custom", "alias_prefix": "Склад"},
+    {"keyword": "СкладПолучатель", "type": "custom", "alias_prefix": "Склад"},
+
+    {"keyword": "БанковскийСчет", "type": "custom", "alias_prefix": "Счет"},
+    {"keyword": "СчетОрганизации", "type": "custom", "alias_prefix": "Счет"},
+    {"keyword": "СчетКонтрагента", "type": "custom", "alias_prefix": "Счет"},
+
+    {"keyword": "Договор", "type": "custom", "alias_prefix": "Договор"},
+    {"keyword": "ДоговорКонтрагента", "type": "custom", "alias_prefix": "Договор"},
+
+    {"keyword": "Адрес", "type": "address", "alias_prefix": "Адрес"},
+    {"keyword": "АдресДоставки", "type": "address", "alias_prefix": "Адрес"},
+    {"keyword": "ФактическийАдрес", "type": "address", "alias_prefix": "Адрес"},
+    {"keyword": "ЮридическийАдрес", "type": "address", "alias_prefix": "Адрес"},
+
+    {"keyword": "Телефон", "type": "phone", "alias_prefix": "Телефон"},
+    {"keyword": "КонтактныйТелефон", "type": "phone", "alias_prefix": "Телефон"},
+    {"keyword": "РабочийТелефон", "type": "phone", "alias_prefix": "Телефон"},
+
+    {"keyword": "ЭлектроннаяПочта", "type": "email", "alias_prefix": "Email"},
+    {"keyword": "Email", "type": "email", "alias_prefix": "Email"},
+
+    {"keyword": "ИНН", "type": "inn", "alias_prefix": "ИНН"},
+    {"keyword": "КПП", "type": "inn", "alias_prefix": "КПП"},
+    {"keyword": "ОГРН", "type": "inn", "alias_prefix": "ОГРН"},
+    {"keyword": "СНИЛС", "type": "inn", "alias_prefix": "СНИЛС"},
+    {"keyword": "БИК", "type": "inn", "alias_prefix": "БИК"},
+
+    {"keyword": "НомерДокумента", "type": "custom", "alias_prefix": "НомерДок"},
+    {"keyword": "СерияДокумента", "type": "custom", "alias_prefix": "Серия"},
+    {"keyword": "СерияПаспорта", "type": "custom", "alias_prefix": "Серия"},
+    {"keyword": "НомерПаспорта", "type": "custom", "alias_prefix": "НомерДок"},
+
+    {"keyword": "ДатаРождения", "type": "custom", "alias_prefix": "Дата"},
+    {"keyword": "МестоРождения", "type": "address", "alias_prefix": "Адрес"},
+
+    {"keyword": "БизнесРегион", "type": "custom", "alias_prefix": "Регион"},
+    {"keyword": "СегментПартнеров", "type": "custom", "alias_prefix": "Сегмент"},
+    {"keyword": "Касса", "type": "custom", "alias_prefix": "Касса"},
+    {"keyword": "КассаККМ", "type": "custom", "alias_prefix": "Касса"}
+  ],
+  "always_mask_keywords": [
+    "Наименование",
+    "НаименованиеПолное",
+    "НаименованиеСокращенное",
+    "ПолноеНаименование",
+    "РабочееНаименование",
+    "НаименованиеДляПечати",
+    "ФИО",
+    "Фамилия",
+    "Имя",
+    "Отчество",
+    "Представление",
+    "КраткоеПредставление"
+  ],
+  "custom_regex": [
+    {"pattern": "(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\\s*[\"«\u201c][^\"»\u201d]+[\"»\u201d]", "alias_prefix": "Организация"},
+    {"pattern": "(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\\s+[А-ЯЁ][а-яёА-ЯЁ\\s\\-]{1,40}", "alias_prefix": "Организация"},
+    {"pattern": "[А-ЯЁ][а-яё]+\\s+[А-ЯЁ]\\.\\s?[А-ЯЁ]\\.", "alias_prefix": "ФИО"},
+    {"pattern": "[А-ЯЁ][а-яё]{1,30}\\s+[А-ЯЁ][а-яё]{1,30}\\s+[А-ЯЁ][а-яё]*(?:вич|вна|ич|чна)\\b", "alias_prefix": "ФИО"},
+    {"pattern": "(?:\\+7|8)[\\s\\-]?\\(?\\d{3}\\)?[\\s\\-]?\\d{3}[\\s\\-]?\\d{2}[\\s\\-]?\\d{2}", "alias_prefix": "Телефон"},
+    {"pattern": "[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}", "alias_prefix": "Email"},
+    {"pattern": "\\b[34]\\d{19}\\b", "alias_prefix": "РасчСчет"},
+    {"pattern": "(?i)р/?с\\s*\\d{20}", "alias_prefix": "РасчСчет"},
+    {"pattern": "(?i)к/?с\\s*\\d{20}", "alias_prefix": "КоррСчет"},
+    {"pattern": "\\b04\\d{7}\\b", "alias_prefix": "БИК"},
+    {"pattern": "\\d{3}-\\d{3}-\\d{3}\\s?\\d{2}", "alias_prefix": "СНИЛС"},
+    {"pattern": "(?i)договор\\s+№?\\s*[А-Яа-яA-Za-z0-9/\\-]+", "alias_prefix": "Договор"}
+  ]
+}
