@@ -192,7 +192,9 @@ func (rt *TrustedGatewayRuntime) ApplyAnalysis(session *TrustedSession, analysis
 	return session.AnalysisDisplay
 }
 
-// ExecuteCode runs BSL code via MCP execute_code and masks the result with NER.
+// ExecuteCode runs BSL code via MCP execute_code and masks the result.
+// If the result is valid JSON (from РезультатJSON), it masks by fields using SanitizeRows.
+// Otherwise falls back to NER-based free text masking.
 func (rt *TrustedGatewayRuntime) ExecuteCode(
 	ctx context.Context,
 	url, token, task, code string,
@@ -224,24 +226,69 @@ func (rt *TrustedGatewayRuntime) ExecuteCode(
 
 	rawText := result.Text
 
-	// Apply NER masking
-	salt := rt.effectiveSalt(token)
-	maskedText, aliasMap := SanitizeFreeText(rawText, rt.NerRules, salt, rt.Config.Privacy.AliasLength)
-
 	session := NewTrustedSession()
 	session.Task = task
 	session.CodeText = code
-	session.Mode = "code_masked"
 	session.RawResultPreview = rawText
+	session.ResultIsEmpty = strings.TrimSpace(rawText) == ""
+
+	// Try to parse as JSON (structured result from РезультатJSON)
+	var parsed any
+	if err := json.Unmarshal([]byte(rawText), &parsed); err == nil {
+		rows := jsonToRows(parsed)
+		if len(rows) > 0 {
+			sanitizer := rt.runtimeSanitizer(token)
+			sanitizer.skipNumeric = true
+			sanitized := sanitizer.SanitizeRows(rows, nil, nil)
+
+			session.Mode = "masked"
+			session.DisplayRows = sanitized.DisplayRows
+			session.MaskedRows = sanitized.MaskedRows
+			session.MaskedColumns = sanitized.MaskedColumns
+			session.UnmaskedColumns = sanitized.UnmaskedColumns
+			session.AliasToOriginal = sanitized.AliasToOriginal
+			session.Diagnostic = map[string]any{
+				"text_length":      len(rawText),
+				"parsed_row_count": len(rows),
+				"source":           "execute_code_json",
+			}
+			return session, nil
+		}
+	}
+
+	// Fallback: free text — apply NER masking
+	salt := rt.effectiveSalt(token)
+	maskedText, aliasMap := SanitizeFreeText(rawText, rt.NerRules, salt, rt.Config.Privacy.AliasLength)
+
+	session.Mode = "code_masked"
 	session.MaskedResult = maskedText
 	session.AliasToOriginal = aliasMap
-	session.ResultIsEmpty = strings.TrimSpace(rawText) == ""
 	session.Diagnostic = map[string]any{
-		"text_length":    len(rawText),
+		"text_length":     len(rawText),
 		"masked_entities": len(aliasMap),
+		"source":          "execute_code_ner_fallback",
 	}
 
 	return session, nil
+}
+
+// jsonToRows converts a parsed JSON value into []map[string]any for SanitizeRows.
+// Handles: array of objects, single object, primitive values.
+func jsonToRows(parsed any) []map[string]any {
+	switch v := parsed.(type) {
+	case []any:
+		var rows []map[string]any
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				rows = append(rows, m)
+			}
+		}
+		return rows
+	case map[string]any:
+		return []map[string]any{v}
+	default:
+		return nil
+	}
 }
 
 // effectiveSalt returns the deterministic salt for masking.

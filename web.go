@@ -66,8 +66,15 @@ type TrustedWebApp struct {
 
 	SessionToken string
 
+	SuggestedFields []string // fields suggested by agent for whitelisting
+	suggestDone     chan struct{} // signaled when all suggested fields are approved
+
 	AutoSendToAgent  bool
 	SkipNumericValues bool // when true, real numbers (prices, amounts) are not masked
+
+	PendingCode     string // BSL code awaiting user approval
+	PendingCodeTask string // task description for pending code
+	CodeMode        bool   // true = editor is in code mode, false = query mode
 
 	// Rate-limiter / brute-force detection
 	queryTimestamps       []time.Time // sliding window of agent query times
@@ -237,12 +244,17 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"has_saved_settings":   app.HasSavedSettings,
 		"has_saved_token":      app.ConnectedToken != "",
 		"defaults_allow_plain": app.Config.Defaults.AllowPlainFields,
+		"suggested_fields":       app.SuggestedFields,
+		"agent_waiting_approval": app.suggestDone != nil,
 		"excluded_fields":        app.ExcludedFields,
 		"persistent_allow_plain": app.PersistentAllowPlain,
 		"persistent_force_mask":  app.PersistentForceMask,
 		"auto_send_to_agent":     app.AutoSendToAgent,
 		"skip_numeric_values":    app.SkipNumericValues,
 		"approval_pending":     false,
+		"pending_code":         app.PendingCode,
+		"pending_code_task":    app.PendingCodeTask,
+		"code_mode":            app.CodeMode,
 		"data_version":         app.dataVersion,
 		"query_version":        app.queryVersion,
 		"rate_limit_triggered": app.rateLimitTriggered,
@@ -517,6 +529,24 @@ func (app *TrustedWebApp) HandleSetWhitelist(forceMask, allowPlain string) map[s
 	return map[string]any{"ok": true}
 }
 
+// HandleConfirmSuggestedFields signals the agent that user has finished approving suggested fields.
+func (app *TrustedWebApp) HandleConfirmSuggestedFields() map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	if app.suggestDone == nil {
+		return map[string]any{"ok": true, "message": "Нет ожидающего запроса от агента."}
+	}
+
+	// Signal the waiting agent
+	select {
+	case app.suggestDone <- struct{}{}:
+	default:
+	}
+
+	return map[string]any{"ok": true, "message": "Подтверждено."}
+}
+
 // HandleRemask re-applies masking to the current session's data without re-querying the MCP server.
 func (app *TrustedWebApp) HandleRemask(forceMask, allowPlain string) map[string]any {
 	app.mu.Lock()
@@ -571,6 +601,35 @@ func (app *TrustedWebApp) HandleExcludeFields(excluded string) map[string]any {
 		"masked_columns":   session.MaskedColumns,
 		"unmasked_columns": session.UnmaskedColumns,
 	}
+}
+
+// HandleSuggestFields stores agent-suggested fields for whitelisting.
+// These are shown as clickable badges in the UI — user clicks to approve.
+func (app *TrustedWebApp) HandleSuggestFields(fields []string) map[string]any {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	// Deduplicate and filter out fields already in persistent whitelist
+	existingAllow := csvFields(app.PersistentAllowPlain)
+	var filtered []string
+	seen := make(map[string]bool)
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		lc := strings.ToLower(f)
+		if seen[lc] || existingAllow[lc] {
+			continue
+		}
+		seen[lc] = true
+		filtered = append(filtered, f)
+	}
+
+	app.SuggestedFields = filtered
+	app.notify()
+
+	return map[string]any{"ok": true, "suggested_fields": filtered}
 }
 
 // remaskLocked re-sanitizes session data with current mask/allow/exclude settings.
@@ -869,7 +928,7 @@ func (app *TrustedWebApp) bridgeApplyAnalysis(sessionID *string, analysisText st
 	}
 }
 
-func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
+func (app *TrustedWebApp) bridgeExecuteCode(task, code string, fromBridge bool) map[string]any {
 	app.mu.RLock()
 	url := app.ConnectedURL
 	token := app.ConnectedToken
@@ -880,6 +939,71 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
 		return map[string]any{"ok": false, "message": "Нет подключения к 1С"}
 	}
 
+	if fromBridge {
+		app.mu.RLock()
+		autoSend := app.AutoSendToAgent
+		app.mu.RUnlock()
+
+		if autoSend {
+			// Auto mode: execute immediately and return result
+			result := app.executeCodeDirect(task, code, url, token)
+			okVal, _ := result["ok"].(bool)
+			if !okVal {
+				return result
+			}
+			// Return masked bundle for agent
+			app.mu.RLock()
+			session := app.CurrentSession
+			app.mu.RUnlock()
+			if session != nil && session.Mode == "masked" {
+				bundleText := MaskedBundle(session)
+				return map[string]any{
+					"ok":            true,
+					"session_id":    session.SessionID,
+					"mode":          session.Mode,
+					"task":          task,
+					"row_count":     len(session.MaskedRows),
+					"masked_bundle": bundleText,
+				}
+			}
+			return result
+		}
+
+		// Manual mode: show code in UI for user approval
+		app.mu.Lock()
+		app.PendingCode = code
+		app.PendingCodeTask = task
+		app.CodeMode = true
+		app.TaskText = task
+		if app.TaskText == "" {
+			app.TaskText = "Выполнение кода"
+		}
+		app.QueryPreview = code
+		app.RawResponse = ""
+		app.RawState = "neutral"
+		app.QueryState = "running"
+		app.QueryStateText = "Ожидание одобрения кода"
+		app.ActiveTab = "raw"
+		app.StatusText = "Агент хочет выполнить код. Проверьте и нажмите \"Выполнить\"."
+		app.PlaceholderText = ""
+		app.PlaceholderError = false
+		app.notify()
+		app.mu.Unlock()
+
+		return map[string]any{
+			"ok":      true,
+			"status":  "awaiting_approval",
+			"task":    task,
+			"message": "Код показан пользователю для проверки. Дождитесь одобрения и заберите результат через gateway_pull_note.",
+		}
+	}
+
+	// Direct execution (from UI after approval)
+	return app.executeCodeDirect(task, code, url, token)
+}
+
+// executeCodeDirect runs BSL code and updates UI with results.
+func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[string]any {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -892,6 +1016,7 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
 	// Update UI state
 	app.mu.Lock()
 	app.CurrentSession = session
+	// Keep PendingCode so user can re-edit and re-run; cleared only by reject or query mode switch
 	app.TaskText = session.Task
 	if app.TaskText == "" {
 		app.TaskText = "Выполнение кода"
@@ -899,19 +1024,33 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
 	app.queryVersion++
 	app.QueryPreview = session.CodeText
 	app.RawResponse = session.RawResultPreview
-	// Show code results in analysis panels: masked (left), original (right)
-	app.AnalysisMasked = session.MaskedResult
-	app.AnalysisDisplay = session.RawResultPreview
+	app.RawState = "success"
+	app.QueryState = "done"
+	app.QueryStateText = "Выполнено"
 	app.BundleText = ""
-	app.ActiveTab = "analysis"
-	app.StatusText = fmt.Sprintf("Код выполнен. Замаскировано сущностей: %d", len(session.AliasToOriginal))
-
-	// Clear row-related state (this is free text, not tabular)
-	app.MaskedColumns = nil
-	app.UnmaskedColumns = nil
 	app.PlaceholderText = ""
 	app.PlaceholderError = false
-	app.RowsTruncated = false
+
+	if session.Mode == "masked" {
+		// Structured JSON result — show as table like a normal query
+		app.extractRows(session.DisplayRows)
+		app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
+		app.ActiveTab = "result"
+		app.AnalysisMasked = ""
+		app.AnalysisDisplay = ""
+		app.RowsTruncated = false
+		app.StatusText = fmt.Sprintf("Код выполнен (JSON). Строк: %d, замаскировано полей: %d",
+			len(session.MaskedRows), len(session.MaskedColumns))
+	} else {
+		// Free text fallback — show in analysis panels
+		app.AnalysisMasked = session.MaskedResult
+		app.AnalysisDisplay = session.RawResultPreview
+		app.MaskedColumns = nil
+		app.UnmaskedColumns = nil
+		app.RowsTruncated = false
+		app.ActiveTab = "analysis"
+		app.StatusText = fmt.Sprintf("Код выполнен (текст). Замаскировано сущностей: %d", len(session.AliasToOriginal))
+	}
 
 	app.notify()
 	app.mu.Unlock()
@@ -919,7 +1058,7 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string) map[string]any {
 	return map[string]any{
 		"ok":              true,
 		"session_id":      session.SessionID,
-		"masked_result":   session.MaskedResult,
+		"mode":            session.Mode,
 		"masked_entities": len(session.AliasToOriginal),
 	}
 }
@@ -956,6 +1095,9 @@ func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 	app.CurrentSession = session
+	app.CodeMode = false
+	app.PendingCode = ""
+	app.PendingCodeTask = ""
 
 	app.TaskText = session.Task
 	if app.TaskText == "" {
@@ -1060,6 +1202,7 @@ func (app *TrustedWebApp) clearSessionLocked() {
 	app.RawState = "neutral"
 	app.PendingAgentNote = nil
 	app.ExcludedFields = ""
+	app.SuggestedFields = nil
 	app.resetRateLimit()
 	app.TaskText = "Ожидаю задачу от контроллера"
 	app.StatusText = "Сессия очищена из памяти."
@@ -1248,6 +1391,9 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/api/apply_analysis", ws.handleAPIApplyAnalysis)
 	mux.HandleFunc("/api/clear_session", ws.handleAPIClearSession)
 	mux.HandleFunc("/api/execute_code", ws.handleAPIExecuteCode)
+	mux.HandleFunc("/api/approve_code", ws.handleAPIApproveCode)
+	mux.HandleFunc("/api/reject_code", ws.handleAPIRejectCode)
+	mux.HandleFunc("/api/code_mode", ws.handleAPICodeMode)
 	mux.HandleFunc("/api/ner/export_template", ws.handleAPINerExportTemplate)
 	mux.HandleFunc("/api/ner/reload", ws.handleAPINerReload)
 	mux.HandleFunc("/api/ner/status", ws.handleAPINerStatus)
@@ -1260,9 +1406,16 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 mux.HandleFunc("/api/remask", ws.handleAPIRemask)
 	mux.HandleFunc("/api/set_whitelist", ws.handleAPISetWhitelist)
 	mux.HandleFunc("/api/exclude_fields", ws.handleAPIExcludeFields)
+	mux.HandleFunc("/api/suggest_fields", ws.handleAPISuggestFields)
+	mux.HandleFunc("/api/confirm_suggested_fields", ws.handleAPIConfirmSuggestedFields)
 	mux.HandleFunc("/api/approve_send", ws.handleAPIApproveSend)
 	mux.HandleFunc("/api/auto_send", ws.handleAPIAutoSend)
 	mux.HandleFunc("/api/skip_numeric", ws.handleAPISkipNumeric)
+	mux.HandleFunc("/api/icon", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(embeddedIcon)
+	})
 
 	// MCP server (streamable HTTP) — no auth, localhost only
 	mcpSrv := NewMcpServer(app)
@@ -1675,6 +1828,34 @@ func (ws *WebHTTPServer) handleAPIExcludeFields(w http.ResponseWriter, r *http.R
 	respondJSON(w, 200, ws.App.HandleExcludeFields(excluded))
 }
 
+func (ws *WebHTTPServer) handleAPISuggestFields(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	fieldsRaw, _ := data["fields"].([]any)
+	var fields []string
+	for _, f := range fieldsRaw {
+		if s, ok := f.(string); ok {
+			fields = append(fields, s)
+		}
+	}
+	respondJSON(w, 200, ws.App.HandleSuggestFields(fields))
+}
+
+func (ws *WebHTTPServer) handleAPIConfirmSuggestedFields(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJSON(w, 200, ws.App.HandleConfirmSuggestedFields())
+}
+
 func (ws *WebHTTPServer) handleAPIApproveSend(w http.ResponseWriter, r *http.Request) {
 	if !ws.checkToken(r) {
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
@@ -1778,8 +1959,98 @@ func (ws *WebHTTPServer) handleAPIExecuteCode(w http.ResponseWriter, r *http.Req
 		respondJSON(w, 400, map[string]any{"error": "code is required"})
 		return
 	}
-	result := ws.App.bridgeExecuteCode(task, code)
+	result := ws.App.bridgeExecuteCode(task, code, false)
 	respondJSON(w, 200, result)
+}
+
+// handleAPIApproveCode — user approved pending code execution
+func (ws *WebHTTPServer) handleAPIApproveCode(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	ws.App.mu.RLock()
+	code := ws.App.PendingCode
+	task := ws.App.PendingCodeTask
+	url := ws.App.ConnectedURL
+	token := ws.App.ConnectedToken
+	ws.App.mu.RUnlock()
+
+	if code == "" {
+		respondJSON(w, 400, map[string]any{"error": "Нет кода для выполнения"})
+		return
+	}
+
+	result := ws.App.executeCodeDirect(task, code, url, token)
+	okVal, _ := result["ok"].(bool)
+	if !okVal {
+		respondJSON(w, 200, result)
+		return
+	}
+
+	// Prepare masked bundle for agent (via pull_note)
+	ws.App.mu.Lock()
+	session := ws.App.CurrentSession
+	if session != nil && session.Mode == "masked" {
+		bundleText := MaskedBundle(session)
+		ws.App.PendingAgentNote = map[string]string{
+			"session_id": session.SessionID,
+			"bundle":     bundleText,
+		}
+	} else if session != nil && session.Mode == "code_masked" {
+		ws.App.PendingAgentNote = map[string]string{
+			"session_id": session.SessionID,
+			"bundle":     session.MaskedResult,
+		}
+	}
+	ws.App.mu.Unlock()
+
+	respondJSON(w, 200, result)
+}
+
+// handleAPIRejectCode — user rejected pending code execution
+func (ws *WebHTTPServer) handleAPIRejectCode(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	ws.App.mu.Lock()
+	ws.App.PendingCode = ""
+	ws.App.PendingCodeTask = ""
+	// CodeMode stays — user can still switch manually
+	ws.App.QueryState = "idle"
+	ws.App.QueryStateText = "Отклонено"
+	ws.App.StatusText = "Выполнение кода отклонено пользователем."
+	ws.App.PendingAgentNote = map[string]string{
+		"session_id": "",
+		"bundle":     "Пользователь отклонил выполнение кода.",
+	}
+	ws.App.notify()
+	ws.App.mu.Unlock()
+	respondJSON(w, 200, map[string]any{"ok": true})
+}
+
+// handleAPICodeMode — toggle between query and code editor mode
+func (ws *WebHTTPServer) handleAPICodeMode(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	enabled, _ := data["enabled"].(bool)
+	ws.App.mu.Lock()
+	ws.App.CodeMode = enabled
+	if !enabled {
+		ws.App.PendingCode = ""
+		ws.App.PendingCodeTask = ""
+	}
+	ws.App.notify()
+	ws.App.mu.Unlock()
+	respondJSON(w, 200, map[string]any{"ok": true})
 }
 
 // ── NER Rules API ──────────────────────────────────────────────

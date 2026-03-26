@@ -126,6 +126,14 @@ body {
 .excluded-col-tag:hover { opacity: 0.8; }
 .exclude-x { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--error-soft); color: var(--error); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); margin-left: -2px; }
 .exclude-x:hover { background: var(--error); color: #fff; }
+.suggested-field-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); font-weight: 600; white-space: nowrap; cursor: pointer; transition: all var(--transition); border: 1px dashed var(--accent); }
+.suggested-field-tag:hover { background: var(--accent); color: #fff; }
+.suggested-field-tag.accepted { background: var(--bg-secondary); color: var(--text-tertiary); border-style: solid; border-color: var(--border); cursor: default; opacity: 0.6; }
+.suggested-tags { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.suggest-confirm-btn { font-size: 10px; padding: 2px 10px; background: var(--accent); color: #fff; border: none; border-radius: 3px; cursor: pointer; white-space: nowrap; transition: opacity var(--transition); }
+.suggest-confirm-btn:hover { opacity: 0.85; }
+.suggested-bar { display: flex; gap: 8px; padding: 4px 16px; align-items: center; background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+.suggested-label { font-size: 11px; color: var(--accent); font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .field-legend { display: inline-flex; gap: 8px; margin-left: 12px; font-size: 10px; color: var(--text-tertiary); align-items: center; }
 .field-legend-item { display: inline-flex; align-items: center; gap: 3px; }
 .field-legend-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
@@ -287,6 +295,10 @@ input::placeholder { color: var(--text-tertiary); }
 }
 #result-table th:hover { background: var(--surface-hover); color: var(--text-primary); }
 #result-table th .sort-arrow { color: var(--accent); margin-left: 4px; }
+#result-table th.col-masked { color: var(--warning); }
+#result-table th.col-masked::before { content: "\1F512 "; font-size: 10px; }
+#result-table th.col-open { color: var(--success, #4caf50); }
+#result-table th.col-cipher { color: var(--accent); font-style: italic; opacity: 0.7; }
 #result-table td {
   padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
   max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -503,6 +515,10 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
     <div class="header-actions">
       <span id="conn-dot" class="conn-dot fail" title="Не подключено"></span>
       <button class="btn btn-primary" onclick="doConnect()">Подключить</button>
+      <span id="header-send-mode" style="display:flex; align-items:center; gap:4px; font-size:12px; margin:0 4px;">
+        <button class="btn btn-ghost btn-xs" id="hdr-mode-auto" onclick="setSendMode(true)" title="Данные отправляются агенту автоматически">Авто</button>
+        <button class="btn btn-ghost btn-xs" id="hdr-mode-manual" onclick="setSendMode(false)" title="Данные отправляются только после проверки">Ручной</button>
+      </span>
       <button class="btn btn-ghost" onclick="doClearSession()">Сброс</button>
       <!-- Bridge Secret hidden — MCP server used instead -->
       <span class="bridge-addr" id="bridge-addr" style="display:none"></span>
@@ -528,6 +544,12 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <span class="mask-label" style="padding-top:0; cursor:pointer;">Числовые значения</span>
     </label>
     <textarea id="force-mask" style="display:none"></textarea>
+  </div>
+
+  <!-- ══════ Agent-suggested fields ══════ -->
+  <div id="suggested-bar" class="panel suggested-bar" style="display:none">
+    <span class="suggested-label">Агент просит открыть:</span>
+    <div id="suggested-tags" class="suggested-tags"></div>
   </div>
 
   <!-- ══════ Toolbar ══════ -->
@@ -558,12 +580,7 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
         <button class="btn btn-ghost btn-xs" onclick="copyAllRows()">Копировать все</button>
         <button class="btn btn-ghost btn-xs" onclick="copyCellSelection()">Выделение</button>
         <span style="flex-grow:1"></span>
-        <span id="send-mode-wrap" style="display:flex; align-items:center; gap:6px; font-size:12px;">
-          <span style="color:var(--text-tertiary)">Режим:</span>
-          <button class="btn btn-ghost btn-xs" id="mode-auto-btn" onclick="setSendMode(true)" title="Агент получает данные сразу без предварительной проверки. Шифруется всё, кроме белого списка">Авто</button>
-          <button class="btn btn-ghost btn-xs" id="mode-manual-btn" onclick="setSendMode(false)" title="Данные отправляются агенту только после вашей проверки">Ручной</button>
-          <span id="rate-limit-warning" style="display:none; color:#ff6b6b; font-size:11px; font-weight:600; margin-left:4px;"></span>
-        </span>
+        <span id="rate-limit-warning" style="display:none; color:#ff6b6b; font-size:11px; font-weight:600; margin-left:4px;"></span>
         <button class="btn btn-primary btn-xs" id="approve-send-btn" style="visibility:hidden" onclick="doApproveSend()">&#9654; Отправить агенту</button>
       </div>
       <div id="filter-rows"></div>
@@ -609,10 +626,14 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <div class="split-h" style="flex:1; min-height:0;">
         <div class="split-pane" style="flex:0 0 40%; max-width:40%; display:flex; flex-direction:column;">
           <div class="pane-header" style="display:flex; align-items:center; justify-content:space-between;">
-            <span>Запрос</span>
+            <span style="display:flex; align-items:center; gap:4px;">
+              <button class="btn btn-ghost btn-xs" id="mode-query-btn" onclick="setEditorMode(false)" title="Режим запроса">Запрос</button>
+              <button class="btn btn-ghost btn-xs" id="mode-code-btn" onclick="setEditorMode(true)" title="Режим кода BSL">Код</button>
+            </span>
             <span style="display:flex; gap:4px;">
-              <button class="btn btn-ghost btn-xs" onclick="formatQuery()" title="Форматировать запрос">{ } Формат</button>
               <button class="btn btn-primary btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос">&#9654; Выполнить</button>
+              <button class="btn btn-primary btn-xs" id="btn-approve-code" style="display:none" onclick="doApproveCode()" title="Одобрить и выполнить код">&#9654; Выполнить код</button>
+              <button class="btn btn-ghost btn-xs" id="btn-reject-code" style="display:none; color:var(--warning)" onclick="doRejectCode()" title="Отклонить выполнение кода">&#10006; Отклонить</button>
               <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить">&#9940; Отмена</button>
             </span>
           </div>
@@ -731,6 +752,8 @@ let maskedHeaders = [];
 let maskedColumns = [];
 let tagAllowSet = new Set();   // fields opened via tag clicks (separate from textarea)
 let tagForceSet = new Set();   // fields force-masked via tag clicks
+let acceptedSuggestions = new Set(); // suggested fields already approved by user
+let suggestConfirmed = false; // true after user clicked Confirm
 let sortColumn = null;
 let sortReverse = false;
 
@@ -745,6 +768,7 @@ let vsScrollTop = 0;
 let stableColumnOrder = [];   // fixed order for field tags (no re-sorting on click)
 let lastDataVersion = -1;     // tracks server data_version for row refresh
 let lastQueryVersion = -1;   // tracks server query_version — resets when new query arrives (not remask)
+let _lastTabSwitchQV = -1;   // prevents tab auto-switch on non-query state updates
 let vsRenderStart = 0;
 let vsRenderEnd = 0;
 let vsTicking = false;
@@ -790,6 +814,7 @@ async function fetchState() {
     if (newQueryVersion !== lastQueryVersion) {
       tagAllowSet.clear();
       tagForceSet.clear();
+      acceptedSuggestions.clear();
       stableColumnOrder = [];
       updateAllowPlainHighlight();
       lastQueryVersion = newQueryVersion;
@@ -884,9 +909,10 @@ function render(s) {
   qs.querySelector(".state-label").textContent = s.query_state_text;
 
   // Cancel button visibility & query buttons enabled state
+  const isCodeMode2 = !!(s.code_mode);
   const cancelBtn = document.getElementById("cancel-btn");
-  if (cancelBtn) cancelBtn.style.display = s.query_state === "running" ? "" : "none";
-  if (s.query_state !== "running") {
+  if (cancelBtn) cancelBtn.style.display = (!isCodeMode2 && s.query_state === "running") ? "" : "none";
+  if (s.query_state !== "running" && !isCodeMode2) {
     document.getElementById("btn-query-masked").disabled = false;
   }
 
@@ -923,8 +949,42 @@ function render(s) {
     }
   }
   const rawEl = document.getElementById("raw-response");
-  rawEl.textContent = s.raw_response || "";
+  // Try to pretty-print JSON in raw response
+  const rawText = s.raw_response || "";
+  if (rawText.trim().startsWith("{") || rawText.trim().startsWith("[")) {
+    try {
+      rawEl.textContent = JSON.stringify(JSON.parse(rawText), null, 2);
+    } catch(e) {
+      rawEl.textContent = rawText;
+    }
+  } else {
+    rawEl.textContent = rawText;
+  }
   rawEl.className = "text-panel raw-border-" + (s.raw_state || "neutral");
+
+  // Show/hide code mode buttons
+  const isCodeMode = !!(s.code_mode);
+  document.getElementById("btn-approve-code").style.display = isCodeMode ? "" : "none";
+  document.getElementById("btn-reject-code").style.display = isCodeMode ? "" : "none";
+  document.getElementById("btn-query-masked").style.display = isCodeMode ? "none" : "";
+  // Highlight active mode button
+  const mqBtn = document.getElementById("mode-query-btn");
+  const mcBtn = document.getElementById("mode-code-btn");
+  mqBtn.style.background = isCodeMode ? "" : "var(--accent)";
+  mqBtn.style.color = isCodeMode ? "" : "#fff";
+  mcBtn.style.background = isCodeMode ? "var(--accent)" : "";
+  mcBtn.style.color = isCodeMode ? "#fff" : "";
+
+  // Auto-switch tab only when a new query/code result arrives (query_version changed)
+  const newQV = s.query_version || 0;
+  if (s.active_tab && newQV !== _lastTabSwitchQV) {
+    const currentPanel = document.querySelector(".tab-panel.active");
+    const currentTab = currentPanel ? currentPanel.id.replace("tab-", "") : "";
+    if (currentTab !== s.active_tab && currentTab !== "settings") {
+      showTab(s.active_tab);
+    }
+    _lastTabSwitchQV = newQV;
+  }
 
   // Status bar
   document.getElementById("status-text").textContent = s.status || "Готово";
@@ -948,6 +1008,10 @@ function render(s) {
   if (skipNumericCb.checked !== !!s.skip_numeric_values) {
     skipNumericCb.checked = !!s.skip_numeric_values;
   }
+
+  // Agent-suggested fields
+  renderSuggestedFields(s.suggested_fields || []);
+  handleAgentWaiting(s.agent_waiting_approval || false);
 
   // NER status
   const nerEl = document.getElementById("ner-status");
@@ -1020,12 +1084,14 @@ function render(s) {
     renderExcludedTags(document.getElementById("excluded-cols-result"));
   } else { excludedInfoR.style.display = "none"; }
 
-  // Mode toggle buttons
-  const manualBtn = document.getElementById("mode-manual-btn");
-  const autoBtn = document.getElementById("mode-auto-btn");
-  if (manualBtn && autoBtn) {
-    manualBtn.classList.toggle("mode-active", !autoSendOn);
-    autoBtn.classList.toggle("mode-active", autoSendOn);
+  // Header mode toggle buttons
+  const hdrAutoBtn = document.getElementById("hdr-mode-auto");
+  const hdrManualBtn = document.getElementById("hdr-mode-manual");
+  if (hdrAutoBtn && hdrManualBtn) {
+    hdrAutoBtn.style.background = autoSendOn ? "var(--success)" : "";
+    hdrAutoBtn.style.color = autoSendOn ? "#fff" : "";
+    hdrManualBtn.style.background = !autoSendOn ? "var(--warning)" : "";
+    hdrManualBtn.style.color = !autoSendOn ? "#fff" : "";
   }
 
   // Rate limit warning
@@ -1244,7 +1310,13 @@ function applyResultView() {
   displayCols.forEach(col => {
     const th = document.createElement("th");
     th.textContent = col.header;
-    if (col.isMasked) th.classList.add("masked-col");
+    if (col.isMasked) {
+      th.classList.add("col-cipher");
+    } else if (hasMasked && maskedColumns.includes(col.header)) {
+      th.classList.add("col-masked");
+    } else if (hasMasked) {
+      th.classList.add("col-open");
+    }
     if (col.header === sortColumn) {
       const arrow = document.createElement("span");
       arrow.className = "sort-arrow";
@@ -1615,15 +1687,126 @@ function updateAllowPlainHighlight() {
   el.classList.toggle("has-value", hasValue);
 }
 
+function renderSuggestedFields(fields) {
+  const bar = document.getElementById("suggested-bar");
+  const container = document.getElementById("suggested-tags");
+  if (!fields || fields.length === 0) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "";
+  container.innerHTML = "";
+  // Check which fields are already in the persistent whitelist
+  const currentAllow = new Set(
+    document.getElementById("allow-plain").value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
+  );
+  let hasAccepted = false;
+  fields.forEach(field => {
+    const tag = document.createElement("span");
+    const isAccepted = acceptedSuggestions.has(field.toLowerCase()) || currentAllow.has(field.toLowerCase());
+    if (isAccepted) hasAccepted = true;
+    tag.className = "suggested-field-tag" + (isAccepted ? " accepted" : "");
+    tag.textContent = isAccepted ? field + " ✓" : field;
+    tag.title = isAccepted
+      ? "Уже добавлено в белый список"
+      : "Нажмите, чтобы добавить в белый список";
+    if (!isAccepted) {
+      tag.onclick = () => acceptSuggestedField(field);
+    }
+    container.appendChild(tag);
+  });
+  // Add confirm button inline after tags
+  if (hasAccepted) {
+    const btn = document.createElement("button");
+    btn.className = "suggest-confirm-btn";
+    if (suggestConfirmed) {
+      btn.textContent = "Подтверждено ✓";
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+      btn.style.cursor = "default";
+    } else {
+      btn.textContent = "Подтвердить";
+      btn.onclick = confirmSuggestedFields;
+    }
+    container.appendChild(btn);
+  }
+}
+
+async function acceptSuggestedField(fieldName) {
+  suggestConfirmed = false; // reset — whitelist changed
+  acceptedSuggestions.add(fieldName.toLowerCase());
+  // Add to persistent whitelist textarea
+  const el = document.getElementById("allow-plain");
+  const current = el.value.split(",").map(s => s.trim()).filter(Boolean);
+  if (!current.some(f => f.toLowerCase() === fieldName.toLowerCase())) {
+    current.push(fieldName);
+    el.value = current.join(", ");
+    updateAllowPlainHighlight();
+  }
+  // Also add to tag allow set for immediate remask
+  tagAllowSet.add(fieldName);
+  tagForceSet.delete(fieldName);
+  // Send to server as persistent whitelist + remask (but don't signal agent yet)
+  try {
+    await api("/api/set_whitelist", {
+      allow_plain_fields: el.value,
+      force_mask_fields: document.getElementById("force-mask").value
+    });
+    await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    // Re-render tags to update accepted state and show confirm button
+    const fields = [...document.querySelectorAll("#suggested-tags .suggested-field-tag")].map(el => el.textContent.replace(" ✓", ""));
+    if (fields.length > 0) renderSuggestedFields(fields);
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
+async function confirmSuggestedFields() {
+  try {
+    await api("/api/confirm_suggested_fields", {});
+    suggestConfirmed = true;
+    toast("Подтверждено — агент получит обновлённые данные.");
+    stopFaviconBlink();
+    // Re-render to show disabled button
+    const fields = [...document.querySelectorAll("#suggested-tags .suggested-field-tag")].map(el => el.textContent.replace(" ✓", ""));
+    if (fields.length > 0) renderSuggestedFields(fields);
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
+}
+
 let allowPlainDebounce = null;
 function onAllowPlainInput() {
+  suggestConfirmed = false; // reset — whitelist changed manually
   updateAllowPlainHighlight();
+  syncAcceptedSuggestions();
   clearTimeout(allowPlainDebounce);
   allowPlainDebounce = setTimeout(async () => {
     const allowPlain = document.getElementById("allow-plain").value;
     const forceMask = document.getElementById("force-mask").value;
     await api("/api/set_whitelist", { allow_plain_fields: allowPlain, force_mask_fields: forceMask });
   }, 400);
+}
+
+// Sync acceptedSuggestions with current whitelist — remove fields that were deleted from whitelist
+function syncAcceptedSuggestions() {
+  const currentAllow = new Set(
+    document.getElementById("allow-plain").value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
+  );
+  for (const f of [...acceptedSuggestions]) {
+    if (!currentAllow.has(f)) {
+      acceptedSuggestions.delete(f);
+    }
+  }
+  // Re-render suggested field tags if any are shown
+  const bar = document.getElementById("suggested-bar");
+  if (bar && bar.style.display !== "none") {
+    const fields = [...document.querySelectorAll("#suggested-tags .suggested-field-tag")].map(el => el.textContent.replace(" ✓", ""));
+    if (fields.length > 0) renderSuggestedFields(fields);
+  }
 }
 
 async function onSkipNumericChange() {
@@ -1671,6 +1854,31 @@ async function doApproveSend() {
     const r = await api("/api/approve_send", payload);
     if (r.ok) toast("Данные отправлены агенту" + (isFiltered ? " (" + filteredIndices.length + " строк)" : "") + ".");
     else toast(r.error || "Ошибка");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function doApproveCode() {
+  // Take code from editor (user may have edited it)
+  const code = (window.queryEditor ? window.queryEditor.state.doc.toString() : "").trim();
+  if (!code) { toast("Введите код для выполнения"); return; }
+  try {
+    const r = await api("/api/execute_code", { task: "Выполнение кода из UI", code: code });
+    if (r.ok) toast("Код выполнен.");
+    else toast(r.error || r.message || "Ошибка выполнения");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function doRejectCode() {
+  try {
+    const r = await api("/api/reject_code", {});
+    if (r.ok) toast("Выполнение кода отклонено.");
+    else toast(r.error || "Ошибка");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function setEditorMode(codeMode) {
+  try {
+    await api("/api/code_mode", { enabled: codeMode });
   } catch (e) { toast("Ошибка: " + e.message); }
 }
 
@@ -2007,6 +2215,109 @@ function toggleTokenVis() {
   const inp = document.getElementById("s-mcp-token");
   inp.type = inp.type === "password" ? "text" : "password";
 }
+
+// ─── Favicon blink & browser notifications for agent waiting ─────────
+
+let faviconInterval = null;
+let faviconNormal = null;
+let faviconAlert = null;
+let agentWasWaiting = false;
+
+function createFaviconDataURL(color) {
+  const c = document.createElement("canvas");
+  c.width = 32; c.height = 32;
+  const ctx = c.getContext("2d");
+  // Shield shape
+  ctx.beginPath();
+  ctx.moveTo(16, 2);
+  ctx.quadraticCurveTo(2, 6, 2, 14);
+  ctx.quadraticCurveTo(2, 26, 16, 30);
+  ctx.quadraticCurveTo(30, 26, 30, 14);
+  ctx.quadraticCurveTo(30, 6, 16, 2);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  return c.toDataURL();
+}
+
+function ensureFavicons() {
+  if (!faviconNormal) faviconNormal = createFaviconDataURL("#4a90d9");
+  if (!faviconAlert) faviconAlert = createFaviconDataURL("#e74c3c");
+}
+
+function getFaviconLink() {
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  return link;
+}
+
+function startFaviconBlink() {
+  if (faviconInterval) return;
+  ensureFavicons();
+  const link = getFaviconLink();
+  link.href = faviconNormal;
+  let isAlert = false;
+  faviconInterval = setInterval(() => {
+    isAlert = !isAlert;
+    link.href = isAlert ? faviconAlert : faviconNormal;
+    document.title = isAlert ? "⚠ Агент ждёт одобрения" : "Trusted Gateway";
+  }, 800);
+}
+
+function stopFaviconBlink() {
+  if (faviconInterval) {
+    clearInterval(faviconInterval);
+    faviconInterval = null;
+  }
+  ensureFavicons();
+  getFaviconLink().href = faviconNormal;
+  document.title = "Trusted Gateway";
+}
+
+function showAgentNotification(message) {
+  if (!("Notification" in window)) return;
+  const doShow = () => {
+    // Play attention sound
+    try { new Audio("data:audio/wav;base64,UklGRl4AAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YToAAAD/f/9//3//f/9//3//f/9/AIA=").play().catch(()=>{}); } catch(e) {}
+    const n = new Notification("⚡ Trusted Gateway", {
+      body: message,
+      requireInteraction: true,
+      tag: "agent-waiting",
+      icon: "/api/icon"
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  };
+  if (Notification.permission === "granted") {
+    doShow();
+  } else if (Notification.permission !== "denied") {
+    Notification.requestPermission().then(p => { if (p === "granted") doShow(); });
+  }
+}
+
+function handleAgentWaiting(isWaiting) {
+  if (isWaiting && !agentWasWaiting) {
+    startFaviconBlink();
+    showAgentNotification("Агент ждёт одобрения полей в белый список");
+  } else if (!isWaiting && agentWasWaiting) {
+    stopFaviconBlink();
+  }
+  agentWasWaiting = isWaiting;
+}
+
+// Request notification permission on first user interaction
+document.addEventListener("click", function reqNotifPerm() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+  document.removeEventListener("click", reqNotifPerm);
+}, { once: true });
 
 // ─── Init ────────────────────────────────────────────────────────────
 

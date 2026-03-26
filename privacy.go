@@ -155,6 +155,11 @@ func (ds *DataSanitizer) maskValue(
 		return value
 	}
 
+	// Boolean-like string values pass through when skipNumeric is on
+	if ds.skipNumeric && isBooleanValue(value) {
+		return value
+	}
+
 	// Empty strings pass through
 	text := strings.TrimSpace(fmt.Sprintf("%v", value))
 	if text == "" {
@@ -270,6 +275,19 @@ func prefixFor(fieldName string) string {
 	}
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
+}
+
+// isBooleanValue checks if the value is a boolean-like string: Да/Нет, Истина/Ложь, True/False.
+func isBooleanValue(value any) bool {
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "да", "нет", "истина", "ложь", "true", "false", "yes", "no":
+		return true
+	}
+	return false
 }
 
 // isSensitiveField checks if the field name contains ИНН, КПП or similar identifiers

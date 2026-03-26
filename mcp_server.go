@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 )
 
 // ── MCP Streamable HTTP Server ──────────────────────────────────────
@@ -124,8 +127,8 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 				"- НЕ пытайся обойти маскировку или получить реальные данные — это нарушает политику безопасности. Работай только с псевдонимами.\n\n" +
 				"БЕЛЫЙ СПИСОК ПОЛЕЙ:\n" +
 				"Если для анализа критически важно видеть незашифрованные значения полей (например, Статус, ВидДвижения, " +
-				"Проведен и другие перечисления/булевы), а они замаскированы — попроси пользователя добавить эти поля " +
-				"в белый список через интерфейс шлюза. Не пытайся угадывать значения по псевдонимам.\n\n" +
+				"Проведен и другие перечисления/булевы), а они замаскированы — используй gateway_suggest_fields, " +
+				"чтобы предложить пользователю добавить эти поля в белый список. Не пытайся угадывать значения по псевдонимам.\n\n" +
 				"РУЧНОЙ РЕЖИМ:\n" +
 				"Если ответ содержит status='awaiting_approval', пользователь проверяет данные перед отправкой. " +
 				"Жди одобрения и забирай данные через gateway_pull_note.\n\n" +
@@ -184,9 +187,10 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 		{
 			"name": "gateway_execute_code",
 			"description": "Выполняет BSL-код в 1С через Trusted Gateway (только чтение — транзакция всегда откатывается). " +
-				"Результат автоматически маскируется NER-правилами шлюза: ФИО, ИНН, названия организаций, телефоны, email " +
+				"Результат автоматически маскируется шлюзом: ФИО, ИНН, названия организаций, телефоны, email " +
 				"заменяются псевдонимами. Числовые значения проходят открыто.\n\n" +
-				"Результат возвращай через переменную Результат (строка) или РезультатJSON (JSON-строка).\n\n" +
+				"Результат возвращай ТОЛЬКО через переменную РезультатJSON (Структура, Массив, ТаблицаЗначений или примитив). " +
+				"Строковая переменная Результат НЕ поддерживается.\n\n" +
 				"ФОРМАТ: Оформляй анализ результата в Markdown — заголовки, таблицы, списки. " +
 				"Используй псевдонимы из результата в gateway_apply_analysis.",
 			"inputSchema": map[string]any{
@@ -198,10 +202,39 @@ func (ms *McpServer) toolDefinitions() []map[string]any {
 					},
 					"code": map[string]any{
 						"type": "string",
-						"description": "BSL-код для выполнения. Результат верни через Результат или РезультатJSON.",
+						"description": "BSL-код для выполнения. Результат верни через РезультатJSON (Структура, Массив, ТаблицаЗначений).",
 					},
 				},
 				"required": []string{"task", "code"},
+			},
+		},
+		{
+			"name": "gateway_suggest_fields",
+			"description": "Предлагает пользователю добавить указанные поля в белый список (не шифровать). " +
+				"Используй, когда для анализа нужны незашифрованные значения полей — например, " +
+				"статусы, перечисления, виды движения, булевы флаги и другие служебные значения.\n\n" +
+				"Поля появятся в интерфейсе шлюза как метки-предложения. Пользователь одобрит их одним кликом.\n\n" +
+				"ВАЖНО: Этот инструмент БЛОКИРУЮЩИЙ — он ждёт одобрения пользователем (до 120 секунд) " +
+				"и возвращает обновлённый masked_bundle с ремаскированными данными. " +
+				"Повторный запрос НЕ нужен — используй bundle из ответа.\n\n" +
+				"НЕ предлагай поля с персональными данными (ФИО, ИНН, адреса, телефоны).",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"fields": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+						"description": "Массив имён полей, которые нужно открыть для анализа. " +
+							"Например: [\"Статус\", \"ВидДвижения\", \"Проведен\", \"ТипНоменклатуры\"]",
+					},
+					"reason": map[string]any{
+						"type":        "string",
+						"description": "Краткое пояснение, зачем нужны эти поля (показывается пользователю)",
+					},
+				},
+				"required": []string{"fields"},
 			},
 		},
 		{
@@ -227,6 +260,8 @@ func (ms *McpServer) callTool(id any, toolName string, args map[string]any) map[
 		return ms.toolExecuteCode(id, args)
 	case "gateway_pull_note":
 		return ms.toolPullNote(id)
+	case "gateway_suggest_fields":
+		return ms.toolSuggestFields(id, args)
 	case "gateway_clear_session":
 		return ms.toolClearSession(id)
 	default:
@@ -333,7 +368,7 @@ func (ms *McpServer) toolExecuteCode(id any, args map[string]any) map[string]any
 		task = "MCP execute_code"
 	}
 
-	result := ms.app.bridgeExecuteCode(task, code)
+	result := ms.app.bridgeExecuteCode(task, code, true)
 
 	okVal, _ := result["ok"].(bool)
 	if !okVal {
@@ -347,18 +382,30 @@ func (ms *McpServer) toolExecuteCode(id any, args map[string]any) map[string]any
 		return ms.toolError(id, errMsg)
 	}
 
-	maskedResult, _ := result["masked_result"].(string)
-	if maskedResult == "" {
-		maskedResult = "(пустой результат)"
+	// Check if auto mode returned data directly
+	if bundle, ok := result["masked_bundle"].(string); ok && bundle != "" {
+		payload := map[string]any{
+			"session_id":    result["session_id"],
+			"task":          task,
+			"mode":          result["mode"],
+			"row_count":     result["row_count"],
+			"masked_bundle": bundle,
+		}
+		data, _ := json.MarshalIndent(payload, "", "  ")
+		return ms.rpcResult(id, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": string(data)},
+			},
+		})
 	}
 
-	// Build response with metadata
+	// Manual mode — awaiting approval
+	status, _ := result["status"].(string)
+	message, _ := result["message"].(string)
 	payload := map[string]any{
-		"session_id":      result["session_id"],
-		"task":            task,
-		"mode":            "code_masked",
-		"masked_entities": result["masked_entities"],
-		"result":          maskedResult,
+		"status":  status,
+		"task":    task,
+		"message": message,
 	}
 	data, _ := json.MarshalIndent(payload, "", "  ")
 
@@ -392,6 +439,103 @@ func (ms *McpServer) toolPullNote(id any) map[string]any {
 func (ms *McpServer) toolClearSession(id any) map[string]any {
 	result := ms.app.bridgeClearSession()
 	text, _ := json.Marshal(result)
+	return ms.rpcResult(id, map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": string(text)},
+		},
+	})
+}
+
+func (ms *McpServer) toolSuggestFields(id any, args map[string]any) map[string]any {
+	fieldsRaw, _ := args["fields"].([]any)
+	if len(fieldsRaw) == 0 {
+		return ms.toolError(id, "fields is required (non-empty array of field names)")
+	}
+	var fields []string
+	for _, f := range fieldsRaw {
+		if s, ok := f.(string); ok && strings.TrimSpace(s) != "" {
+			fields = append(fields, strings.TrimSpace(s))
+		}
+	}
+	if len(fields) == 0 {
+		return ms.toolError(id, "fields must contain at least one non-empty string")
+	}
+
+	reason, _ := args["reason"].(string)
+
+	// Prepare a channel for waiting on user approval
+	doneCh := make(chan struct{}, 1)
+	ms.app.mu.Lock()
+	ms.app.suggestDone = doneCh
+	ms.app.mu.Unlock()
+
+	result := ms.app.HandleSuggestFields(fields)
+
+	accepted, _ := result["suggested_fields"].([]string)
+	if reason != "" {
+		ms.app.mu.Lock()
+		ms.app.StatusText = "Агент просит открыть поля: " + reason
+		ms.app.notify()
+		ms.app.mu.Unlock()
+	}
+
+	// Flash browser taskbar button to attract attention
+	flashBrowserWindow()
+
+	if len(accepted) == 0 {
+		// All fields already in whitelist — clean up and return bundle immediately
+		ms.app.mu.Lock()
+		ms.app.suggestDone = nil
+		bundle := ms.app.BundleText
+		ms.app.mu.Unlock()
+
+		text, _ := json.Marshal(map[string]any{
+			"ok":               true,
+			"suggested_fields": accepted,
+			"message":          "Все поля уже в белом списке.",
+			"masked_bundle":    bundle,
+		})
+		return ms.rpcResult(id, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": string(text)},
+			},
+		})
+	}
+
+	// Wait for user to approve all suggested fields (up to 120s)
+	timer := time.NewTimer(120 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-doneCh:
+		// All fields approved — return updated bundle
+	case <-timer.C:
+		// Timeout — return what we have
+	}
+
+	// Clean up and notify UI to stop blinking
+	ms.app.mu.Lock()
+	ms.app.suggestDone = nil
+	bundle := ms.app.BundleText
+	ms.app.notify()
+	ms.app.mu.Unlock()
+
+	msg := fmt.Sprintf("Предложено полей: %d. Пользователь одобрил — данные ремаскированы.", len(accepted))
+
+	if bundle != "" {
+		// Return message + updated bundle as separate text
+		return ms.rpcResult(id, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": msg + "\n\nОбновлённые данные:\n" + bundle},
+			},
+		})
+	}
+
+	text, _ := json.Marshal(map[string]any{
+		"ok":               true,
+		"suggested_fields": accepted,
+		"message":          msg,
+	})
 	return ms.rpcResult(id, map[string]any{
 		"content": []map[string]any{
 			{"type": "text", "text": string(text)},

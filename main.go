@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -54,11 +55,21 @@ const (
 	wmLButtonDbl = 0x0203
 	wmRButtonUp  = 0x0205
 
-	nimAdd    = 0x00000000
-	nimDelete = 0x00000002
+	nimAdd        = 0x00000000
+	nimDelete     = 0x00000002
+	nimSetVersion = 0x00000004
 	nifIcon    = 0x00000002
 	nifMessage = 0x00000001
 	nifTip     = 0x00000004
+	nifInfo    = 0x00000010
+
+	niifInfo    = 0x00000001
+	nimModify   = 0x00000001
+
+	ninBalloonUserClick = 0x0405 // user clicked balloon
+
+	flashwTimerCount = 0x0004 // FLASHW_TIMERNOFG — flash until foreground
+	flashwAll        = 0x0003 // FLASHW_ALL — flash caption + taskbar
 
 	tpmLeftAlign   = 0x0000
 	tpmBottomAlign = 0x0020
@@ -83,6 +94,12 @@ type notifyIconData struct {
 	UCallbackMessage uint32
 	HIcon            windows.Handle
 	SzTip            [128]uint16
+	DwState          uint32
+	DwStateMask      uint32
+	SzInfo           [256]uint16
+	UVersion         uint32
+	SzInfoTitle      [64]uint16
+	DwInfoFlags      uint32
 }
 
 type wndClassEx struct {
@@ -139,7 +156,22 @@ var (
 	pCreateIconFromResourceEx = user32.NewProc("CreateIconFromResourceEx")
 	pLoadCursorW      = user32.NewProc("LoadCursorW")
 	pGetModuleHandleW = kernel32win.NewProc("GetModuleHandleW")
+	pFlashWindowEx     = user32.NewProc("FlashWindowEx")
+	pFindWindowW       = user32.NewProc("FindWindowW")
+	pEnumWindows       = user32.NewProc("EnumWindows")
+	pGetWindowTextW    = user32.NewProc("GetWindowTextW")
+	pGetWindowTextLenW = user32.NewProc("GetWindowTextLengthW")
+	pIsWindowVisible   = user32.NewProc("IsWindowVisible")
+	pShowWindowAsync   = user32.NewProc("ShowWindowAsync")
 )
+
+type flashWInfo struct {
+	CbSize    uint32
+	Hwnd      windows.HWND
+	DwFlags   uint32
+	UCount    uint32
+	DwTimeout uint32
+}
 
 var (
 	trayHWnd   windows.HWND
@@ -158,6 +190,10 @@ func trayWndProc(hwnd windows.HWND, uMsg uint32, wParam, lParam uintptr) uintptr
 		}
 		if lParam == wmLButtonDbl {
 			openBrowser(trayURL)
+			return 0
+		}
+		if lParam == ninBalloonUserClick {
+			focusBrowserWindow()
 			return 0
 		}
 	case wmCommand:
@@ -199,6 +235,99 @@ func showContextMenu(hwnd windows.HWND) {
 	pSetForegroundWindow.Call(uintptr(hwnd))
 	pTrackPopupMenu.Call(hMenu, tpmLeftAlign|tpmBottomAlign, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hwnd), 0)
 	pDestroyMenu.Call(hMenu)
+}
+
+// findBrowserWindow finds a visible window whose title contains substr.
+func findBrowserWindow(substr string) windows.HWND {
+	var found windows.HWND
+	subLower := strings.ToLower(substr)
+	cb := windows.NewCallback(func(hwnd windows.HWND, lParam uintptr) uintptr {
+		vis, _, _ := pIsWindowVisible.Call(uintptr(hwnd))
+		if vis == 0 {
+			return 1 // continue
+		}
+		tLen, _, _ := pGetWindowTextLenW.Call(uintptr(hwnd))
+		if tLen == 0 {
+			return 1
+		}
+		buf := make([]uint16, tLen+1)
+		pGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&buf[0])), tLen+1)
+		title := strings.ToLower(windows.UTF16ToString(buf))
+		if strings.Contains(title, subLower) {
+			found = hwnd
+			return 0 // stop
+		}
+		return 1
+	})
+	pEnumWindows.Call(cb, 0)
+	return found
+}
+
+// findGatewayBrowserWindow tries multiple title patterns to find the browser window.
+// Title may alternate due to blinking ("⚡ Требуется действие" vs "Trusted Gateway").
+func findGatewayBrowserWindow() windows.HWND {
+	for _, pattern := range []string{"trusted gateway", "требуется действие"} {
+		if hwnd := findBrowserWindow(pattern); hwnd != 0 {
+			return hwnd
+		}
+	}
+	return 0
+}
+
+// flashBrowserWindow finds the browser window with Trusted Gateway and flashes it.
+func flashBrowserWindow() {
+	hwnd := findGatewayBrowserWindow()
+	if hwnd == 0 {
+		return
+	}
+	var fi flashWInfo
+	fi.CbSize = uint32(unsafe.Sizeof(fi))
+	fi.Hwnd = hwnd
+	fi.DwFlags = flashwAll | flashwTimerCount
+	fi.UCount = 5
+	fi.DwTimeout = 0
+	pFlashWindowEx.Call(uintptr(unsafe.Pointer(&fi)))
+}
+
+// focusBrowserWindow finds the browser window and brings it to foreground.
+func focusBrowserWindow() {
+	hwnd := findGatewayBrowserWindow()
+	if hwnd == 0 {
+		openBrowser(trayURL) // fallback
+		return
+	}
+	const swRestore = 9
+	pShowWindowAsync.Call(uintptr(hwnd), swRestore)
+	pSetForegroundWindow.Call(uintptr(hwnd))
+}
+
+// showTrayBalloon shows a native Windows balloon notification from the tray icon.
+func showTrayBalloon(title, message string) {
+	if trayHWnd == 0 {
+		return
+	}
+	var nid notifyIconData
+	nid.CbSize = uint32(unsafe.Sizeof(nid))
+	nid.HWnd = trayHWnd
+	nid.UID = 1
+	nid.UFlags = nifInfo
+
+	// Copy title
+	titleUTF16, _ := windows.UTF16FromString(title)
+	for i := 0; i < len(titleUTF16) && i < len(nid.SzInfoTitle); i++ {
+		nid.SzInfoTitle[i] = titleUTF16[i]
+	}
+	// Copy message
+	msgUTF16, _ := windows.UTF16FromString(message)
+	for i := 0; i < len(msgUTF16) && i < len(nid.SzInfo); i++ {
+		nid.SzInfo[i] = msgUTF16[i]
+	}
+	nid.DwInfoFlags = niifInfo
+
+	pShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+
+	// Also flash browser taskbar button
+	flashBrowserWindow()
 }
 
 func removeTrayIcon(hwnd windows.HWND) {
@@ -324,6 +453,10 @@ func trayMain() {
 	copy(nid.SzTip[:], tip)
 
 	pShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
+
+	// Set version to receive balloon click notifications (NIN_BALLOONUSERCLICK)
+	nid.UVersion = 3 // NOTIFYICON_VERSION
+	pShellNotifyIconW.Call(nimSetVersion, uintptr(unsafe.Pointer(&nid)))
 
 	// Message loop
 	var m msg
