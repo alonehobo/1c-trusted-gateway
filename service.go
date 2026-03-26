@@ -16,7 +16,7 @@ type TrustedSession struct {
 	SessionID        string            `json:"session_id"`
 	Task             string            `json:"task"`
 	QueryText        string            `json:"query_text"`
-	Mode             string            `json:"mode"`
+	Mode             string            `json:"mode"` // "masked", "direct", "code_masked"
 	DisplayRows      []map[string]any  `json:"display_rows"`
 	MaskedRows       []map[string]any  `json:"masked_rows"`
 	MaskedColumns    []string          `json:"masked_columns"`
@@ -27,6 +27,8 @@ type TrustedSession struct {
 	Diagnostic       map[string]any    `json:"diagnostic"`
 	AnalysisMasked   string            `json:"analysis_masked"`
 	AnalysisDisplay  string            `json:"analysis_display"`
+	CodeText         string            `json:"code_text,omitempty"`     // BSL code (for execute_code)
+	MaskedResult     string            `json:"masked_result,omitempty"` // NER-masked free text result
 	cachedBundle     string            // cached MaskedBundle result
 }
 
@@ -59,12 +61,17 @@ func (s *TrustedSession) ClearSensitive() {
 
 // TrustedGatewayRuntime provides the business logic for query execution and analysis.
 type TrustedGatewayRuntime struct {
-	Config *AppConfig
+	Config   *AppConfig
+	NerRules *NerRules // loaded from ner_rules.json, may be nil
 }
 
 // NewTrustedGatewayRuntime creates a new runtime with the given config.
 func NewTrustedGatewayRuntime(config *AppConfig) *TrustedGatewayRuntime {
-	return &TrustedGatewayRuntime{Config: config}
+	rt := &TrustedGatewayRuntime{Config: config}
+	// Try to load NER rules from default path
+	rules, _ := LoadNerRules(NerRulesPath())
+	rt.NerRules = rules
+	return rt
 }
 
 // TestConnection verifies connectivity to the MCP server and returns the tool list.
@@ -183,6 +190,120 @@ func (rt *TrustedGatewayRuntime) ApplyAnalysis(session *TrustedSession, analysis
 	session.AnalysisMasked = analysisText
 	session.AnalysisDisplay = RehydrateText(analysisText, session.AliasToOriginal)
 	return session.AnalysisDisplay
+}
+
+// ExecuteCode runs BSL code via MCP execute_code and masks the result.
+// If the result is valid JSON (from РезультатJSON), it masks by fields using SanitizeRows.
+// Otherwise falls back to NER-based free text masking.
+func (rt *TrustedGatewayRuntime) ExecuteCode(
+	ctx context.Context,
+	url, token, task, code string,
+) (*TrustedSession, error) {
+	client := rt.buildMcpClient(url)
+	if err := client.Initialize(ctx); err != nil {
+		return nil, fmt.Errorf("ошибка подключения к MCP (%s): %v", url, err)
+	}
+
+	args := map[string]any{
+		"Code": code,
+	}
+	if token != "" {
+		args["Key"] = token
+	}
+
+	result, err := client.CallNamedTool(ctx, "execute_code", args)
+	if err != nil {
+		return nil, err
+	}
+	delete(result.Arguments, "Key")
+
+	if result.IsError {
+		return nil, fmt.Errorf("%s", result.Preview(rt.Config.Defaults.ResultPreviewChars))
+	}
+	if looksLike1CQueryError(result.Text) {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(result.Text))
+	}
+
+	rawText := result.Text
+
+	session := NewTrustedSession()
+	session.Task = task
+	session.CodeText = code
+	session.RawResultPreview = rawText
+	session.ResultIsEmpty = strings.TrimSpace(rawText) == ""
+
+	// Try to parse as JSON (structured result from РезультатJSON)
+	var parsed any
+	if err := json.Unmarshal([]byte(rawText), &parsed); err == nil {
+		rows := jsonToRows(parsed)
+		if len(rows) > 0 {
+			sanitizer := rt.runtimeSanitizer(token)
+			sanitizer.skipNumeric = true
+			sanitized := sanitizer.SanitizeRows(rows, nil, nil)
+
+			session.Mode = "masked"
+			session.DisplayRows = sanitized.DisplayRows
+			session.MaskedRows = sanitized.MaskedRows
+			session.MaskedColumns = sanitized.MaskedColumns
+			session.UnmaskedColumns = sanitized.UnmaskedColumns
+			session.AliasToOriginal = sanitized.AliasToOriginal
+			session.Diagnostic = map[string]any{
+				"text_length":      len(rawText),
+				"parsed_row_count": len(rows),
+				"source":           "execute_code_json",
+			}
+			return session, nil
+		}
+	}
+
+	// Fallback: free text — apply NER masking
+	salt := rt.effectiveSalt(token)
+	maskedText, aliasMap := SanitizeFreeText(rawText, rt.NerRules, salt, rt.Config.Privacy.AliasLength)
+
+	session.Mode = "code_masked"
+	session.MaskedResult = maskedText
+	session.AliasToOriginal = aliasMap
+	session.Diagnostic = map[string]any{
+		"text_length":     len(rawText),
+		"masked_entities": len(aliasMap),
+		"source":          "execute_code_ner_fallback",
+	}
+
+	return session, nil
+}
+
+// jsonToRows converts a parsed JSON value into []map[string]any for SanitizeRows.
+// Handles: array of objects, single object, primitive values.
+func jsonToRows(parsed any) []map[string]any {
+	switch v := parsed.(type) {
+	case []any:
+		var rows []map[string]any
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				rows = append(rows, m)
+			}
+		}
+		return rows
+	case map[string]any:
+		return []map[string]any{v}
+	default:
+		return nil
+	}
+}
+
+// effectiveSalt returns the deterministic salt for masking.
+func (rt *TrustedGatewayRuntime) effectiveSalt(token string) string {
+	if rt.Config.Privacy.Salt != "" {
+		return rt.Config.Privacy.Salt
+	}
+	if token != "" {
+		mac := hmac.New(sha256.New, []byte(token))
+		mac.Write([]byte("onec-gateway-salt"))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // MaskedBundle returns the JSON bundle of masked data for the agent.
