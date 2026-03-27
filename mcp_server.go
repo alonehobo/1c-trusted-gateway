@@ -75,6 +75,13 @@ func (ms *McpServer) dispatch(req map[string]any) map[string]any {
 
 	switch method {
 	case "initialize":
+		// New MCP session — clear stale state from previous session.
+		ms.app.mu.Lock()
+		ms.app.SuggestedFields = nil
+		ms.app.suggestDone = nil
+		ms.app.notify()
+		ms.app.mu.Unlock()
+
 		return ms.rpcResult(id, map[string]any{
 			"protocolVersion": "2025-03-26",
 			"capabilities": map[string]any{
