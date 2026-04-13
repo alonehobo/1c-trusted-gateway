@@ -609,15 +609,10 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 
     <!-- Tab: Analysis -->
     <div id="tab-analysis" class="tab-panel">
-      <div class="split-v">
-        <div class="split-pane">
-          <div class="pane-header">Анализ от агента (aliases) <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('masked')">Копировать</button></div>
-          <div class="text-panel" id="analysis-masked"></div>
-        </div>
-        <div class="split-pane">
-          <div class="pane-header">Расшифрованный анализ <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('display')">Копировать</button></div>
-          <div class="text-panel" id="analysis-display"></div>
-        </div>
+      <div style="display:flex; flex-direction:column; height:100%;">
+        <div class="pane-header">Расшифрованный анализ <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('display')">Копировать</button> <button class="btn btn-ghost btn-xs" onclick="copyAnalysis('masked')">Копировать анализ (шифрованный)</button></div>
+        <div class="text-panel" id="analysis-display" style="flex:1; min-height:0;"></div>
+        <div id="analysis-masked" style="display:none;"></div>
       </div>
     </div>
 
