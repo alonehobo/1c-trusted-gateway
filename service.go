@@ -343,21 +343,7 @@ func (rt *TrustedGatewayRuntime) buildMcpClient(url string) *McpClient {
 }
 
 func (rt *TrustedGatewayRuntime) runtimeSanitizer(token string) *DataSanitizer {
-	var effectiveSalt string
-	if rt.Config.Privacy.Salt != "" {
-		effectiveSalt = rt.Config.Privacy.Salt
-	} else if token != "" {
-		// Derive salt from token via HMAC
-		mac := hmac.New(sha256.New, []byte(token))
-		mac.Write([]byte("onec-gateway-salt"))
-		effectiveSalt = hex.EncodeToString(mac.Sum(nil))
-	} else {
-		// Random salt as fallback
-		b := make([]byte, 16)
-		_, _ = rand.Read(b)
-		effectiveSalt = hex.EncodeToString(b)
-	}
-	return NewDataSanitizer(effectiveSalt, rt.Config.Privacy.AliasLength, rt.Config.Privacy.NumericThreshold)
+	return NewDataSanitizer(rt.effectiveSalt(token), rt.Config.Privacy.AliasLength, rt.Config.Privacy.NumericThreshold)
 }
 
 // looksLike1CQueryError checks if the response text looks like a 1C query error.

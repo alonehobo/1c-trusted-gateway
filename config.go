@@ -51,7 +51,7 @@ func DefaultAppConfig() *AppConfig {
 			Tools: map[string]string{
 				"query":                  "query",
 				"execute_code":           "execute_code",
-				"get_metadata_structure": "get_metadata_structure",
+			"get_metadata_structure": "get_metadata_structure",
 			},
 		},
 		Privacy: PrivacyConfig{
@@ -109,7 +109,7 @@ func applyConfigDefaults(cfg *AppConfig) {
 		cfg.Mcp.Tools = map[string]string{
 			"query":                  "query",
 			"execute_code":           "execute_code",
-				"get_metadata_structure": "get_metadata_structure",
+			"get_metadata_structure": "get_metadata_structure",
 		}
 	}
 	if cfg.Privacy.SaltEnv == "" && cfg.Privacy.Salt == "" {
@@ -142,81 +142,3 @@ func (p *PrivacyConfig) ResolvedSalt() string {
 	return ""
 }
 
-// ─── NER Rules for execute_code masking ─────────────────────────
-
-// NerContextPattern describes a keyword-based masking rule.
-// When "keyword" appears before a value in text, that value is masked with alias_prefix.
-type NerContextPattern struct {
-	Keyword     string `json:"keyword"`      // e.g. "Контрагент", "Менеджер"
-	Type        string `json:"type"`         // person, org, inn, phone, email, address, custom
-	AliasPrefix string `json:"alias_prefix"` // prefix for pseudonyms
-}
-
-// NerCustomRegex is a user-defined regex pattern for masking.
-type NerCustomRegex struct {
-	Pattern     string `json:"pattern"`      // Go regex
-	AliasPrefix string `json:"alias_prefix"` // prefix for pseudonyms
-}
-
-// NerRules holds all NER masking rules loaded from ner_rules.json.
-type NerRules struct {
-	Description        string              `json:"description,omitempty"`
-	ContextPatterns    []NerContextPattern `json:"context_patterns"`
-	AlwaysMaskKeywords []string            `json:"always_mask_keywords"`
-	CustomRegex        []NerCustomRegex    `json:"custom_regex,omitempty"`
-}
-
-// LoadNerRules reads NER rules from a JSON file. Returns nil if file doesn't exist.
-func LoadNerRules(path string) (*NerRules, error) {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var rules NerRules
-	if err := json.Unmarshal(data, &rules); err != nil {
-		return nil, err
-	}
-	return &rules, nil
-}
-
-// ExportNerTemplate writes a template ner_rules.json with examples.
-func ExportNerTemplate(path string) error {
-	tmpl := &NerRules{
-		Description: "NER rules for Trusted Gateway execute_code masking. " +
-			"Edit this file and reload in the app. " +
-			"Context patterns: when 'keyword' appears before a value, mask it with alias_prefix. " +
-			"Types: person, org, inn, phone, email, address, custom.",
-		ContextPatterns: []NerContextPattern{
-			{Keyword: "Контрагент", Type: "org", AliasPrefix: "Контрагент"},
-			{Keyword: "Менеджер", Type: "person", AliasPrefix: "Менеджер"},
-			{Keyword: "Ответственный", Type: "person", AliasPrefix: "Сотрудник"},
-			{Keyword: "Поставщик", Type: "org", AliasPrefix: "Поставщик"},
-			{Keyword: "Адрес", Type: "address", AliasPrefix: "Адрес"},
-		},
-		AlwaysMaskKeywords: []string{"Наименование", "НаименованиеПолное", "ФИО", "Фамилия"},
-		CustomRegex: []NerCustomRegex{
-			{Pattern: `договор\s+№?\s*[А-Яа-яA-Za-z0-9/\-]+`, AliasPrefix: "Договор"},
-		},
-	}
-	data, err := json.MarshalIndent(tmpl, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-// NerRulesPath returns the default path for ner_rules.json next to the executable.
-func NerRulesPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "ner_rules.json"
-	}
-	return filepath.Join(filepath.Dir(exe), "ner_rules.json")
-}

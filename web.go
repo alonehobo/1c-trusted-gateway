@@ -2,12 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,28 +10,28 @@ import (
 )
 
 const (
-	DefaultWebHost     = "127.0.0.1"
-	DefaultWebPort     = 8767
-	maxRequestBody     = 1 * 1024 * 1024 // 1 MB
+	DefaultWebHost = "127.0.0.1"
+	DefaultWebPort = 8767
+	maxRequestBody = 1 * 1024 * 1024 // 1 MB
 
 	// Brute-force protection
 	rateLimitWindow    = 5 * time.Second // sliding window size
 	rateLimitMaxPerWin = 3               // max queries per window
-	lowRowStreakMax     = 5              // consecutive ≤1-row results before escalation
+	lowRowStreakMax    = 5               // consecutive ≤1-row results before escalation
 )
 
 // TrustedWebApp holds all application state and logic.
 type TrustedWebApp struct {
-	Config          *AppConfig
-	Runtime         *TrustedGatewayRuntime
-	CurrentSession  *TrustedSession
-	ConnectedURL    string
-	ConnectedToken  string
+	Config             *AppConfig
+	Runtime            *TrustedGatewayRuntime
+	CurrentSession     *TrustedSession
+	ConnectedURL       string
+	ConnectedToken     string
 	ConnectionVerified bool
 	HasSavedSettings   bool
-	ResultRows      []map[string]any
-	ResultHeaders   []string
-	ColumnOrder     []string
+	ResultRows         []map[string]any
+	ResultHeaders      []string
+	ColumnOrder        []string
 	MaskedResultRows    []map[string]any
 	MaskedResultHeaders []string
 	MaskedColumns       []string
@@ -67,10 +62,10 @@ type TrustedWebApp struct {
 
 	SessionToken string
 
-	SuggestedFields []string // fields suggested by agent for whitelisting
+	SuggestedFields []string     // fields suggested by agent for whitelisting
 	suggestDone     chan struct{} // signaled when all suggested fields are approved
 
-	AutoSendToAgent  bool
+	AutoSendToAgent   bool
 	SkipNumericValues bool // when true, real numbers (prices, amounts) are not masked
 
 	PendingCode     string // BSL code awaiting user approval
@@ -78,10 +73,10 @@ type TrustedWebApp struct {
 	CodeMode        bool   // true = editor is in code mode, false = query mode
 
 	// Rate-limiter / brute-force detection
-	queryTimestamps       []time.Time // sliding window of agent query times
-	lowRowStreakCount      int         // consecutive queries with ≤1 row result
-	rateLimitTriggered    bool        // true when brute-force was detected
-	rateLimitMessage      string      // message shown in UI
+	queryTimestamps    []time.Time // sliding window of agent query times
+	lowRowStreakCount  int         // consecutive queries with ≤1 row result
+	rateLimitTriggered bool        // true when brute-force was detected
+	rateLimitMessage   string      // message shown in UI
 
 	queryCancel  context.CancelFunc
 	queryRunning bool
@@ -95,22 +90,21 @@ type TrustedWebApp struct {
 // NewTrustedWebApp creates a new web app instance.
 func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 	app := &TrustedWebApp{
-		Config:          config,
-		Runtime:         NewTrustedGatewayRuntime(config),
-		ConnectedURL:    config.Mcp.URL,
-		ConnectedToken:  savedToken,
+		Config:           config,
+		Runtime:          NewTrustedGatewayRuntime(config),
+		ConnectedURL:     config.Mcp.URL,
+		ConnectedToken:   savedToken,
 		HasSavedSettings: savedToken != "",
-		ThemeName:       "dark",
-		TaskText:        "Ожидаю задачу от контроллера",
-		StatusText:      "Готово.",
-		QueryState:      "idle",
-		QueryStateText:  "Ожидание",
-		RawState:        "neutral",
-		PlaceholderText: "Результат появится здесь после выполнения запроса.",
-		SessionToken:    generateToken(24),
-		stateEvent:      make(chan struct{}, 1),
+		ThemeName:        "dark",
+		TaskText:         "Ожидаю задачу от контроллера",
+		StatusText:       "Готово.",
+		QueryState:       "idle",
+		QueryStateText:   "Ожидание",
+		RawState:         "neutral",
+		PlaceholderText:  "Результат появится здесь после выполнения запроса.",
+		SessionToken:     generateToken(24),
+		stateEvent:       make(chan struct{}, 1),
 	}
-
 	return app
 }
 
@@ -231,20 +225,20 @@ func (app *TrustedWebApp) GetState() map[string]any {
 			"masked_columns":   app.MaskedColumns,
 			"unmasked_columns": app.UnmaskedColumns,
 		},
-		"rows_truncated":       app.RowsTruncated,
-		"max_rows":             app.MaxRows,
-		"total_row_count":      app.TotalRowCount,
-		"bundle_text":          app.BundleText,
-		"analysis_masked":      app.AnalysisMasked,
-		"analysis_display":     app.AnalysisDisplay,
-		"query_preview":        app.QueryPreview,
-		"raw_response":         app.RawResponse,
-		"raw_state":            app.RawState,
-		"active_tab":           app.ActiveTab,
-		"query_running":        app.queryRunning,
-		"has_saved_settings":   app.HasSavedSettings,
-		"has_saved_token":      app.ConnectedToken != "",
-		"defaults_allow_plain": app.Config.Defaults.AllowPlainFields,
+		"rows_truncated":         app.RowsTruncated,
+		"max_rows":               app.MaxRows,
+		"total_row_count":        app.TotalRowCount,
+		"bundle_text":            app.BundleText,
+		"analysis_masked":        app.AnalysisMasked,
+		"analysis_display":       app.AnalysisDisplay,
+		"query_preview":          app.QueryPreview,
+		"raw_response":           app.RawResponse,
+		"raw_state":              app.RawState,
+		"active_tab":             app.ActiveTab,
+		"query_running":          app.queryRunning,
+		"has_saved_settings":     app.HasSavedSettings,
+		"has_saved_token":        app.ConnectedToken != "",
+		"defaults_allow_plain":   app.Config.Defaults.AllowPlainFields,
 		"suggested_fields":       app.SuggestedFields,
 		"agent_waiting_approval": app.suggestDone != nil,
 		"excluded_fields":        app.ExcludedFields,
@@ -252,17 +246,19 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"persistent_force_mask":  app.PersistentForceMask,
 		"auto_send_to_agent":     app.AutoSendToAgent,
 		"skip_numeric_values":    app.SkipNumericValues,
-		"approval_pending":     false,
-		"pending_code":         app.PendingCode,
-		"pending_code_task":    app.PendingCodeTask,
-		"code_mode":            app.CodeMode,
-		"data_version":         app.dataVersion,
-		"query_version":        app.queryVersion,
-		"rate_limit_triggered": app.rateLimitTriggered,
-		"rate_limit_message":   app.rateLimitMessage,
-		"ner_status":           nerRulesStatus(app.Runtime.NerRules),
+		"approval_pending":       false,
+		"pending_code":           app.PendingCode,
+		"pending_code_task":      app.PendingCodeTask,
+		"code_mode":              app.CodeMode,
+		"data_version":           app.dataVersion,
+		"query_version":          app.queryVersion,
+		"rate_limit_triggered":   app.rateLimitTriggered,
+		"rate_limit_message":     app.rateLimitMessage,
+		"ner_status":             nerRulesStatus(app.Runtime.NerRules),
 	}
 }
+
+// ── Handle methods (business logic) ────────────────────────────
 
 // HandleConnect handles a connection attempt to the MCP server.
 func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
@@ -344,22 +340,22 @@ func (app *TrustedWebApp) HandleGetSettings() map[string]any {
 		saltDisplay = "***"
 	}
 	return map[string]any{
-		"mcp_url":                     firstNonEmpty(app.Config.Mcp.URL, app.ConnectedURL),
-		"mcp_token_saved":             app.ConnectedToken != "" && app.HasSavedSettings,
-		"mcp_timeout_seconds":         app.Config.Mcp.TimeoutSeconds,
+		"mcp_url":                      firstNonEmpty(app.Config.Mcp.URL, app.ConnectedURL),
+		"mcp_token_saved":              app.ConnectedToken != "" && app.HasSavedSettings,
+		"mcp_timeout_seconds":          app.Config.Mcp.TimeoutSeconds,
 		"mcp_sse_read_timeout_seconds": app.Config.Mcp.SSEReadTimeoutSeconds,
-		"privacy_salt":                saltDisplay,
-		"privacy_salt_env":            app.Config.Privacy.SaltEnv,
-		"privacy_alias_length":        app.Config.Privacy.AliasLength,
-		"privacy_numeric_threshold":   app.Config.Privacy.NumericThreshold,
-		"privacy_show_masked":         app.Config.Privacy.ShowMaskedDataInViewer,
-		"defaults_preview_chars":      app.Config.Defaults.ResultPreviewChars,
-		"defaults_auto_send":          app.Config.Defaults.AutoSendToAgent,
-		"defaults_skip_numeric":       app.Config.Defaults.SkipNumericValues,
-		"defaults_allow_plain_fields": app.Config.Defaults.AllowPlainFields,
-		"defaults_force_mask_fields":  app.Config.Defaults.ForceMaskFields,
-		"has_saved_settings":          app.HasSavedSettings,
-		"allow_plain_keywords":        AllowPlainKeywordsCSV(),
+		"privacy_salt":                 saltDisplay,
+		"privacy_salt_env":             app.Config.Privacy.SaltEnv,
+		"privacy_alias_length":         app.Config.Privacy.AliasLength,
+		"privacy_numeric_threshold":    app.Config.Privacy.NumericThreshold,
+		"privacy_show_masked":          app.Config.Privacy.ShowMaskedDataInViewer,
+		"defaults_preview_chars":       app.Config.Defaults.ResultPreviewChars,
+		"defaults_auto_send":           app.Config.Defaults.AutoSendToAgent,
+		"defaults_skip_numeric":        app.Config.Defaults.SkipNumericValues,
+		"defaults_allow_plain_fields":  app.Config.Defaults.AllowPlainFields,
+		"defaults_force_mask_fields":   app.Config.Defaults.ForceMaskFields,
+		"has_saved_settings":           app.HasSavedSettings,
+		"allow_plain_keywords":         AllowPlainKeywordsCSV(),
 	}
 }
 
@@ -396,10 +392,10 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 		},
 		"defaults": map[string]any{
 			"result_preview_chars": getIntField(data, "defaults_preview_chars", 4000),
-			"auto_send_to_agent":   getBoolField(data, "defaults_auto_send"),
-			"skip_numeric_values":  getBoolField(data, "defaults_skip_numeric"),
-			"allow_plain_fields":   getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
-			"force_mask_fields":    getStringFieldDefault(data, "defaults_force_mask_fields", ""),
+			"auto_send_to_agent":  getBoolField(data, "defaults_auto_send"),
+			"skip_numeric_values": getBoolField(data, "defaults_skip_numeric"),
+			"allow_plain_fields":  getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
+			"force_mask_fields":   getStringFieldDefault(data, "defaults_force_mask_fields", ""),
 		},
 		"auth": map[string]any{
 			"token": firstNonEmpty(getStringFieldDefault(data, "mcp_token", ""), app.ConnectedToken),
@@ -462,10 +458,10 @@ func (app *TrustedWebApp) HandleExportSettings() map[string]any {
 		},
 		"defaults": map[string]any{
 			"result_preview_chars": app.Config.Defaults.ResultPreviewChars,
-			"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
-			"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
-			"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
-			"force_mask_fields":    app.Config.Defaults.ForceMaskFields,
+			"auto_send_to_agent":  app.Config.Defaults.AutoSendToAgent,
+			"skip_numeric_values": app.Config.Defaults.SkipNumericValues,
+			"allow_plain_fields":  app.Config.Defaults.AllowPlainFields,
+			"force_mask_fields":   app.Config.Defaults.ForceMaskFields,
 		},
 	}
 }
@@ -577,7 +573,7 @@ func (app *TrustedWebApp) HandleRemask(forceMask, allowPlain string) map[string]
 	}
 }
 
-// HandleExcludeFields updates excluded fields and re-masks. Excluded columns are stripped before masking.
+// HandleExcludeFields updates excluded fields and re-masks.
 func (app *TrustedWebApp) HandleExcludeFields(excluded string) map[string]any {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -605,12 +601,10 @@ func (app *TrustedWebApp) HandleExcludeFields(excluded string) map[string]any {
 }
 
 // HandleSuggestFields stores agent-suggested fields for whitelisting.
-// These are shown as clickable badges in the UI — user clicks to approve.
 func (app *TrustedWebApp) HandleSuggestFields(fields []string) map[string]any {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	// Deduplicate and filter out fields already in persistent whitelist
 	existingAllow := csvFields(app.PersistentAllowPlain)
 	var filtered []string
 	seen := make(map[string]bool)
@@ -633,10 +627,11 @@ func (app *TrustedWebApp) HandleSuggestFields(fields []string) map[string]any {
 	return map[string]any{"ok": true, "suggested_fields": filtered}
 }
 
+// ── Internal helpers ───────────────────────────────────────────
+
 // remaskLocked re-sanitizes session data with current mask/allow/exclude settings.
 // Caller must hold app.mu (write lock).
 func (app *TrustedWebApp) remaskLocked(session *TrustedSession) {
-	// Strip excluded columns from display rows before masking
 	rows := app.filterExcludedColumns(session.DisplayRows)
 
 	sanitizer := app.Runtime.runtimeSanitizer(app.ConnectedToken)
@@ -662,7 +657,6 @@ func (app *TrustedWebApp) filterExcludedColumns(rows []map[string]any) []map[str
 	if len(excluded) == 0 {
 		return rows
 	}
-	// Normalize excluded field names for comparison
 	normalizedExcluded := make(map[string]bool, len(excluded))
 	for f := range excluded {
 		normalizedExcluded[strings.ToLower(strings.TrimSpace(f))] = true
@@ -739,7 +733,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 
 	app.mu.Lock()
-	// For bridge queries, reset session-level mask overrides so remask clicks from previous query don't leak
 	if fromBridge {
 		app.ForceMaskFields = ""
 		app.AllowPlainFields = ""
@@ -774,22 +767,11 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 	}
 	ch := make(chan queryResult, 1)
 	go func() {
-		s, e := runtime.ExecuteQuery(
-			ctx,
-			connURL,
-			connToken,
-			task,
-			queryText,
-			mode,
-			forceMask,
-			allowPlain,
-			skipNumeric,
-		)
+		s, e := runtime.ExecuteQuery(ctx, connURL, connToken, task, queryText, mode, forceMask, allowPlain, skipNumeric)
 		ch <- queryResult{session: s, err: e}
 	}()
 
 	res := <-ch
-	// Save ctx state BEFORE calling cancel(), otherwise ctx.Err() always returns Canceled
 	ctxErr := ctx.Err()
 	cancel()
 
@@ -818,7 +800,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 	session := res.session
 	app.onSessionReady(session)
 
-	// Track low-row results for brute-force detection (bridge only)
 	if fromBridge {
 		app.mu.Lock()
 		app.recordLowRowResult(len(session.MaskedRows))
@@ -848,7 +829,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 			app.mu.RUnlock()
 
 			if autoSend {
-				// Auto-send mode: return masked bundle immediately
 				app.mu.RLock()
 				bundleText := app.BundleText
 				app.mu.RUnlock()
@@ -864,8 +844,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 					"masked_bundle": bundleText,
 				}
 			}
-			// Manual mode: data is displayed in UI, user will review/filter
-			// and click "Отправить агенту". Agent should poll via pull_note.
 			return map[string]any{
 				"ok":         true,
 				"session_id": session.SessionID,
@@ -876,7 +854,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 				"message":    "Данные показаны в интерфейсе. Пользователь решит, что отправить. Используйте pull_note для получения данных после одобрения.",
 			}
 		}
-		// UI query — just return bundle for display
 		app.mu.RLock()
 		bundleText := app.BundleText
 		app.mu.RUnlock()
@@ -900,7 +877,6 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 		"status":     "displayed_locally",
 	}
 }
-
 
 func (app *TrustedWebApp) bridgeApplyAnalysis(sessionID *string, analysisText string) map[string]any {
 	app.mu.Lock()
@@ -947,13 +923,11 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string, fromBridge bool) 
 		app.mu.RUnlock()
 
 		if autoSend {
-			// Auto mode: execute immediately and return result
 			result := app.executeCodeDirect(task, code, url, token)
 			okVal, _ := result["ok"].(bool)
 			if !okVal {
 				return result
 			}
-			// Return masked bundle for agent
 			app.mu.RLock()
 			session := app.CurrentSession
 			app.mu.RUnlock()
@@ -1000,7 +974,6 @@ func (app *TrustedWebApp) bridgeExecuteCode(task, code string, fromBridge bool) 
 		}
 	}
 
-	// Direct execution (from UI after approval)
 	return app.executeCodeDirect(task, code, url, token)
 }
 
@@ -1015,10 +988,8 @@ func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[s
 		return map[string]any{"ok": false, "message": err.Error()}
 	}
 
-	// Update UI state
 	app.mu.Lock()
 	app.CurrentSession = session
-	// Keep PendingCode so user can re-edit and re-run; cleared only by reject or query mode switch
 	app.TaskText = session.Task
 	if app.TaskText == "" {
 		app.TaskText = "Выполнение кода"
@@ -1034,7 +1005,6 @@ func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[s
 	app.PlaceholderError = false
 
 	if session.Mode == "masked" {
-		// Structured JSON result — show as table like a normal query
 		app.extractRows(session.DisplayRows, session.ColumnOrder)
 		app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
 		app.ActiveTab = "result"
@@ -1044,7 +1014,6 @@ func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[s
 		app.StatusText = fmt.Sprintf("Код выполнен (JSON). Строк: %d, замаскировано полей: %d",
 			len(session.MaskedRows), len(session.MaskedColumns))
 	} else {
-		// Free text fallback — show in analysis panels
 		app.AnalysisMasked = session.MaskedResult
 		app.AnalysisDisplay = session.RawResultPreview
 		app.MaskedColumns = nil
@@ -1090,13 +1059,13 @@ func (app *TrustedWebApp) bridgePullNote(clearAfterRead bool) map[string]any {
 	return response
 }
 
-// ── Internal ────────────────────────────────────────────────────
+// ── Session lifecycle ──────────────────────────────────────────
 
-// onSessionReady updates app state with a completed session. Takes its own lock.
 func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 	app.CurrentSession = session
+
 	app.CodeMode = false
 	app.PendingCode = ""
 	app.PendingCodeTask = ""
@@ -1113,7 +1082,6 @@ func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
 	app.AnalysisMasked = ""
 	app.AnalysisDisplay = ""
 
-	// Propagate truncation info from diagnostic
 	if trunc, ok := session.Diagnostic["rows_truncated"].(bool); ok {
 		app.RowsTruncated = trunc
 	}
@@ -1184,13 +1152,11 @@ func (app *TrustedWebApp) onQueryFailed(task, mode, message string) {
 	app.notify()
 }
 
-// clearSessionLocked clears the current session. Caller must hold app.mu (write lock).
 func (app *TrustedWebApp) clearSessionLocked() {
 	if app.CurrentSession != nil {
 		app.CurrentSession.ClearSensitive()
 	}
 	app.CurrentSession = nil
-
 	app.ResultRows = nil
 	app.ResultHeaders = nil
 	app.ColumnOrder = nil
@@ -1253,7 +1219,6 @@ func (app *TrustedWebApp) extractMaskedRows(rows []map[string]any, maskedCols, u
 	app.dataVersion++
 }
 
-// applyFilteredBundle regenerates the session bundle using only the rows at the given indices.
 func (app *TrustedWebApp) applyFilteredBundle(rawIndices []any) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -1271,21 +1236,18 @@ func (app *TrustedWebApp) applyFilteredBundle(rawIndices []any) {
 		}
 	}
 	if len(indices) == 0 || len(indices) == len(session.MaskedRows) {
-		return // no filtering needed
+		return
 	}
 	filteredMasked := make([]map[string]any, len(indices))
 	for i, idx := range indices {
 		filteredMasked[i] = session.MaskedRows[idx]
 	}
-	// Temporarily swap masked rows to build filtered bundle, then restore full rows.
-	// cachedBundle must be cleared both before (to force recompute with filtered rows)
-	// and after (to prevent stale filtered cache from being returned on subsequent calls).
 	origMasked := session.MaskedRows
 	session.MaskedRows = filteredMasked
 	session.cachedBundle = ""
 	app.BundleText = MaskedBundle(session)
 	session.MaskedRows = origMasked
-	session.cachedBundle = "" // clear filtered cache so next call recomputes from full rows
+	session.cachedBundle = ""
 }
 
 func extractHeadersFromRows(rows []map[string]any, columnOrder []string) []string {
@@ -1332,20 +1294,8 @@ func (app *TrustedWebApp) securityHint() string {
 	return "Транспорт: не задан"
 }
 
-func csvFields(raw string) map[string]bool {
-	result := make(map[string]bool)
-	for _, item := range strings.Split(raw, ",") {
-		item = strings.TrimSpace(item)
-		if item != "" {
-			result[item] = true
-		}
-	}
-	return result
-}
-
 func (app *TrustedWebApp) mergedForceMask() map[string]bool {
 	combined := make(map[string]bool)
-	// From saved settings
 	for k := range csvFields(app.Config.Defaults.ForceMaskFields) {
 		combined[k] = true
 	}
@@ -1384,835 +1334,4 @@ func (app *TrustedWebApp) Shutdown() {
 	app.ConnectedToken = ""
 	app.ConnectionVerified = false
 	app.mu.Unlock()
-	// Bridge removed — MCP server handles agent communication
 }
-
-// ── HTTP Server ─────────────────────────────────────────────────
-
-// WebHTTPServer wraps http.Server with the app reference.
-type WebHTTPServer struct {
-	App    *TrustedWebApp
-	server *http.Server
-}
-
-// NewWebHTTPServer creates a new HTTP server for the web UI.
-func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer {
-	ws := &WebHTTPServer{App: app}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", ws.handleRoot)
-	mux.HandleFunc("/favicon.ico", ws.handleFavicon)
-	mux.HandleFunc("/api/state", ws.handleAPIState)
-	mux.HandleFunc("/api/rows", ws.handleAPIRows)
-	mux.HandleFunc("/api/events", ws.handleAPIEvents)
-	mux.HandleFunc("/api/settings", ws.handleAPISettings)
-	mux.HandleFunc("/api/connect", ws.handleAPIConnect)
-	mux.HandleFunc("/api/disconnect", ws.handleAPIDisconnect)
-	mux.HandleFunc("/api/query", ws.handleAPIQuery)
-	mux.HandleFunc("/api/cancel_query", ws.handleAPICancelQuery)
-	mux.HandleFunc("/api/apply_analysis", ws.handleAPIApplyAnalysis)
-	mux.HandleFunc("/api/clear_session", ws.handleAPIClearSession)
-	mux.HandleFunc("/api/execute_code", ws.handleAPIExecuteCode)
-	mux.HandleFunc("/api/approve_code", ws.handleAPIApproveCode)
-	mux.HandleFunc("/api/reject_code", ws.handleAPIRejectCode)
-	mux.HandleFunc("/api/code_mode", ws.handleAPICodeMode)
-	mux.HandleFunc("/api/ner/export_template", ws.handleAPINerExportTemplate)
-	mux.HandleFunc("/api/ner/reload", ws.handleAPINerReload)
-	mux.HandleFunc("/api/ner/status", ws.handleAPINerStatus)
-	mux.HandleFunc("/api/submit_note", ws.handleAPISubmitNote)
-	mux.HandleFunc("/api/clear_note", ws.handleAPIClearNote)
-	mux.HandleFunc("/api/theme", ws.handleAPITheme)
-	mux.HandleFunc("/api/settings/reset", ws.handleAPISettingsReset)
-	mux.HandleFunc("/api/settings/import", ws.handleAPISettingsImport)
-	mux.HandleFunc("/api/settings/export", ws.handleAPISettingsExport)
-mux.HandleFunc("/api/remask", ws.handleAPIRemask)
-	mux.HandleFunc("/api/set_whitelist", ws.handleAPISetWhitelist)
-	mux.HandleFunc("/api/exclude_fields", ws.handleAPIExcludeFields)
-	mux.HandleFunc("/api/suggest_fields", ws.handleAPISuggestFields)
-	mux.HandleFunc("/api/confirm_suggested_fields", ws.handleAPIConfirmSuggestedFields)
-	mux.HandleFunc("/api/approve_send", ws.handleAPIApproveSend)
-	mux.HandleFunc("/api/auto_send", ws.handleAPIAutoSend)
-	mux.HandleFunc("/api/skip_numeric", ws.handleAPISkipNumeric)
-	mux.HandleFunc("/api/icon", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "image/x-icon")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
-		w.Write(embeddedIcon)
-	})
-
-	// MCP server (streamable HTTP) — no auth, localhost only
-	mcpSrv := NewMcpServer(app)
-	mux.HandleFunc("/mcp", mcpSrv.handleMcp)
-
-	ws.server = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", host, port),
-		Handler: mux,
-	}
-	return ws
-}
-
-// ListenAndServe starts the HTTP server.
-func (ws *WebHTTPServer) ListenAndServe() error {
-	return ws.server.ListenAndServe()
-}
-
-// Shutdown gracefully stops the HTTP server.
-func (ws *WebHTTPServer) ShutdownServer() {
-	ws.server.Close()
-}
-
-func (ws *WebHTTPServer) checkToken(r *http.Request) bool {
-	parsed, _ := url.Parse(r.RequestURI)
-	qs := parsed.Query()
-	tokenFromQS := qs.Get("token")
-	tokenFromHeader := r.Header.Get("X-Session-Token")
-	return tokenFromQS == ws.App.SessionToken || tokenFromHeader == ws.App.SessionToken
-}
-
-func respondJSON(w http.ResponseWriter, status int, body any) {
-	data, err := json.Marshal(body)
-	if err != nil {
-		http.Error(w, "internal error", 500)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	w.Write(data)
-}
-
-func respondHTML(w http.ResponseWriter, status int, html string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	w.Write([]byte(html))
-}
-
-func (ws *WebHTTPServer) readJSON(r *http.Request) (map[string]any, error) {
-	if r.ContentLength > maxRequestBody {
-		return nil, fmt.Errorf("request body too large")
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) == 0 {
-		return map[string]any{}, nil
-	}
-	var result map[string]any
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func (ws *WebHTTPServer) handleFavicon(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(204)
-}
-
-func (ws *WebHTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		respondJSON(w, 404, map[string]any{"error": "Not found"})
-		return
-	}
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	html := RenderAppHTML(ws.App.SessionToken)
-	respondHTML(w, 200, html)
-}
-
-func (ws *WebHTTPServer) handleAPIState(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.GetState())
-}
-
-func (ws *WebHTTPServer) handleAPIRows(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	q := r.URL.Query()
-	offset, _ := strconv.Atoi(q.Get("offset"))
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 {
-		limit = 200
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	app := ws.App
-	app.mu.RLock()
-	resultSlice := safeSlice(app.ResultRows, offset, limit)
-	maskedSlice := safeSlice(app.MaskedResultRows, offset, limit)
-	result := map[string]any{
-		"offset":         offset,
-		"limit":          limit,
-		"total":          len(app.ResultRows),
-		"rows":           resultSlice,
-		"masked_rows":    maskedSlice,
-		"headers":        app.ResultHeaders,
-		"masked_headers": app.MaskedResultHeaders,
-		"masked_columns":   app.MaskedColumns,
-		"unmasked_columns": app.UnmaskedColumns,
-	}
-	app.mu.RUnlock()
-	respondJSON(w, 200, result)
-}
-
-func safeSlice(rows []map[string]any, offset, limit int) []map[string]any {
-	if rows == nil {
-		return []map[string]any{}
-	}
-	if offset >= len(rows) {
-		return []map[string]any{}
-	}
-	end := offset + limit
-	if end > len(rows) {
-		end = len(rows)
-	}
-	return rows[offset:end]
-}
-
-func (ws *WebHTTPServer) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", 500)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(200)
-	flusher.Flush()
-
-	var lastVersion int64
-	ctx := r.Context()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		ws.App.waitForChange(15 * time.Second)
-
-		current := ws.App.stateVersion.Load()
-		if current != lastVersion {
-			lastVersion = current
-			fmt.Fprintf(w, "data: {\"version\": %d}\n\n", current)
-		} else {
-			fmt.Fprintf(w, ": keepalive\n\n")
-		}
-		flusher.Flush()
-	}
-}
-
-func (ws *WebHTTPServer) handleAPISettings(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	if r.Method == "GET" {
-		respondJSON(w, 200, ws.App.HandleGetSettings())
-		return
-	}
-	if r.Method == "POST" {
-		data, err := ws.readJSON(r)
-		if err != nil {
-			respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-			return
-		}
-		respondJSON(w, 200, ws.App.HandleSaveSettings(data))
-		return
-	}
-	respondJSON(w, 405, map[string]any{"error": "Method not allowed"})
-}
-
-func (ws *WebHTTPServer) handleAPIConnect(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleConnect(data))
-}
-
-func (ws *WebHTTPServer) handleAPIDisconnect(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleDisconnect())
-}
-
-func (ws *WebHTTPServer) handleAPIQuery(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleQuery(data))
-}
-
-func (ws *WebHTTPServer) handleAPICancelQuery(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.handleCancelQuery())
-}
-
-func (ws *WebHTTPServer) handleAPIApplyAnalysis(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	var sessionID *string
-	if v, ok := data["session_id"]; ok && v != nil {
-		s := fmt.Sprintf("%v", v)
-		sessionID = &s
-	}
-	analysisText := getStringFieldDefault(data, "analysis_text", "")
-	result := ws.App.bridgeApplyAnalysis(sessionID, analysisText)
-	respondJSON(w, 200, result)
-}
-
-func (ws *WebHTTPServer) handleAPIClearSession(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.bridgeClearSession())
-}
-
-func (ws *WebHTTPServer) handleAPISubmitNote(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	message := strings.TrimSpace(getStringFieldDefault(data, "message", ""))
-	if message == "" {
-		respondJSON(w, 200, map[string]any{"ok": false, "error": "Message is empty."})
-		return
-	}
-	ws.App.mu.Lock()
-	session := ws.App.CurrentSession
-	sessionID := ""
-	if session != nil {
-		sessionID = session.SessionID
-	}
-	ws.App.PendingAgentNote = map[string]string{
-		"message":    message,
-		"session_id": sessionID,
-		"task":       ws.App.TaskText,
-	}
-	ws.App.StatusText = "Сообщение для агента сохранено в мосте."
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (ws *WebHTTPServer) handleAPIClearNote(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	ws.App.mu.Lock()
-	ws.App.PendingAgentNote = nil
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (ws *WebHTTPServer) handleAPITheme(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	theme := getStringFieldDefault(data, "theme", "dark")
-	if theme != "dark" {
-		theme = "light"
-	}
-	ws.App.mu.Lock()
-	ws.App.ThemeName = theme
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (ws *WebHTTPServer) handleAPISettingsReset(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleResetSettings())
-}
-
-func (ws *WebHTTPServer) handleAPISettingsExport(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	result := ws.App.HandleExportSettings()
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=config.json")
-	json.NewEncoder(w).Encode(result)
-}
-
-func (ws *WebHTTPServer) handleAPISettingsImport(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleImportSettings(data))
-}
-
-func (ws *WebHTTPServer) handleAPIRemask(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	forceMask := getStringFieldDefault(data, "force_mask_fields", "")
-	allowPlain := getStringFieldDefault(data, "allow_plain_fields", "")
-	respondJSON(w, 200, ws.App.HandleRemask(forceMask, allowPlain))
-}
-
-func (ws *WebHTTPServer) handleAPISetWhitelist(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	allowPlain := getStringFieldDefault(data, "allow_plain_fields", "")
-	forceMask := getStringFieldDefault(data, "force_mask_fields", "")
-	respondJSON(w, 200, ws.App.HandleSetWhitelist(forceMask, allowPlain))
-}
-
-func (ws *WebHTTPServer) handleAPIExcludeFields(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	excluded := getStringFieldDefault(data, "excluded_fields", "")
-	respondJSON(w, 200, ws.App.HandleExcludeFields(excluded))
-}
-
-func (ws *WebHTTPServer) handleAPISuggestFields(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	fieldsRaw, _ := data["fields"].([]any)
-	var fields []string
-	for _, f := range fieldsRaw {
-		if s, ok := f.(string); ok {
-			fields = append(fields, s)
-		}
-	}
-	respondJSON(w, 200, ws.App.HandleSuggestFields(fields))
-}
-
-func (ws *WebHTTPServer) handleAPIConfirmSuggestedFields(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJSON(w, 200, ws.App.HandleConfirmSuggestedFields())
-}
-
-func (ws *WebHTTPServer) handleAPIApproveSend(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, _ := ws.readJSON(r)
-
-	// Apply filtered indices if provided (user filtered rows in Result tab)
-	if data != nil {
-		if rawIndices, ok := data["filtered_indices"].([]any); ok && len(rawIndices) > 0 {
-			ws.App.applyFilteredBundle(rawIndices)
-		}
-	}
-
-	// Store the current bundle in PendingAgentNote for pull_note retrieval
-	ws.App.mu.Lock()
-	session := ws.App.CurrentSession
-	bundleText := ws.App.BundleText
-	sessionID := ""
-	task := ws.App.TaskText
-	if session != nil {
-		sessionID = session.SessionID
-		if bundleText == "" {
-			bundleText = MaskedBundle(session)
-		}
-	}
-	ws.App.PendingAgentNote = map[string]string{
-		"message":    bundleText,
-		"session_id": sessionID,
-		"task":       task,
-	}
-	ws.App.QueryState = "success"
-	ws.App.QueryStateText = "Отправлено"
-	ws.App.StatusText = "Данные готовы для агента. Агент может забрать через pull_note."
-	ws.App.notify()
-	ws.App.mu.Unlock()
-
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (ws *WebHTTPServer) handleAPIAutoSend(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	enabled, _ := data["enabled"].(bool)
-	ws.App.mu.Lock()
-	ws.App.AutoSendToAgent = enabled
-	if enabled {
-		// User consciously re-enables auto mode — reset brute-force counters
-		ws.App.resetRateLimit()
-	}
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (ws *WebHTTPServer) handleAPISkipNumeric(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	enabled, _ := data["enabled"].(bool)
-	ws.App.mu.Lock()
-	ws.App.SkipNumericValues = enabled
-	session := ws.App.CurrentSession
-	if session != nil && session.Mode == "masked" && len(session.DisplayRows) > 0 {
-		ws.App.remaskLocked(session)
-	} else {
-		ws.App.notify()
-	}
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-// ── Execute Code API ────────────────────────────────────────────
-
-func (ws *WebHTTPServer) handleAPIExecuteCode(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	task := getStringFieldDefault(data, "task", "")
-	code := getStringFieldDefault(data, "code", "")
-	if code == "" {
-		respondJSON(w, 400, map[string]any{"error": "code is required"})
-		return
-	}
-	result := ws.App.bridgeExecuteCode(task, code, false)
-	respondJSON(w, 200, result)
-}
-
-// handleAPIApproveCode — user approved pending code execution
-func (ws *WebHTTPServer) handleAPIApproveCode(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	ws.App.mu.RLock()
-	code := ws.App.PendingCode
-	task := ws.App.PendingCodeTask
-	url := ws.App.ConnectedURL
-	token := ws.App.ConnectedToken
-	ws.App.mu.RUnlock()
-
-	if code == "" {
-		respondJSON(w, 400, map[string]any{"error": "Нет кода для выполнения"})
-		return
-	}
-
-	result := ws.App.executeCodeDirect(task, code, url, token)
-	okVal, _ := result["ok"].(bool)
-	if !okVal {
-		respondJSON(w, 200, result)
-		return
-	}
-
-	// Prepare masked bundle for agent (via pull_note)
-	ws.App.mu.Lock()
-	session := ws.App.CurrentSession
-	if session != nil && session.Mode == "masked" {
-		bundleText := MaskedBundle(session)
-		ws.App.PendingAgentNote = map[string]string{
-			"session_id": session.SessionID,
-			"bundle":     bundleText,
-		}
-	} else if session != nil && session.Mode == "code_masked" {
-		ws.App.PendingAgentNote = map[string]string{
-			"session_id": session.SessionID,
-			"bundle":     session.MaskedResult,
-		}
-	}
-	ws.App.mu.Unlock()
-
-	respondJSON(w, 200, result)
-}
-
-// handleAPIRejectCode — user rejected pending code execution
-func (ws *WebHTTPServer) handleAPIRejectCode(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	ws.App.mu.Lock()
-	ws.App.PendingCode = ""
-	ws.App.PendingCodeTask = ""
-	// CodeMode stays — user can still switch manually
-	ws.App.QueryState = "idle"
-	ws.App.QueryStateText = "Отклонено"
-	ws.App.StatusText = "Выполнение кода отклонено пользователем."
-	ws.App.PendingAgentNote = map[string]string{
-		"session_id": "",
-		"bundle":     "Пользователь отклонил выполнение кода.",
-	}
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-// handleAPICodeMode — toggle between query and code editor mode
-func (ws *WebHTTPServer) handleAPICodeMode(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	data, err := ws.readJSON(r)
-	if err != nil {
-		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
-		return
-	}
-	enabled, _ := data["enabled"].(bool)
-	ws.App.mu.Lock()
-	ws.App.CodeMode = enabled
-	if !enabled {
-		ws.App.PendingCode = ""
-		ws.App.PendingCodeTask = ""
-	}
-	ws.App.notify()
-	ws.App.mu.Unlock()
-	respondJSON(w, 200, map[string]any{"ok": true})
-}
-
-// ── NER Rules API ──────────────────────────────────────────────
-
-func (ws *WebHTTPServer) handleAPINerExportTemplate(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	path := NerRulesPath()
-	if err := ExportNerTemplate(path); err != nil {
-		respondJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-	respondJSON(w, 200, map[string]any{"ok": true, "path": path})
-}
-
-func (ws *WebHTTPServer) handleAPINerReload(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	path := NerRulesPath()
-	rules, err := LoadNerRules(path)
-	if err != nil {
-		respondJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-	ws.App.Runtime.NerRules = rules
-	status := nerRulesStatus(rules)
-	respondJSON(w, 200, map[string]any{"ok": true, "status": status})
-}
-
-func (ws *WebHTTPServer) handleAPINerStatus(w http.ResponseWriter, r *http.Request) {
-	rules := ws.App.Runtime.NerRules
-	respondJSON(w, 200, map[string]any{"ok": true, "status": nerRulesStatus(rules)})
-}
-
-func nerRulesStatus(rules *NerRules) string {
-	if rules == nil {
-		return "Файл ner_rules.json не найден"
-	}
-	return fmt.Sprintf("Загружено: %d контекстных правил, %d keyword-масок, %d custom regex",
-		len(rules.ContextPatterns), len(rules.AlwaysMaskKeywords), len(rules.CustomRegex))
-}
-
-// ── Helpers ─────────────────────────────────────────────────────
-
-func getStringFieldDefault(m map[string]any, key, defaultVal string) string {
-	if v, ok := m[key]; ok && v != nil {
-		return fmt.Sprintf("%v", v)
-	}
-	return defaultVal
-}
-
-func getFloat64Field(m map[string]any, key string, defaultVal float64) float64 {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return n
-		case int:
-			return float64(n)
-		case json.Number:
-			f, err := n.Float64()
-			if err == nil {
-				return f
-			}
-		}
-	}
-	return defaultVal
-}
-
-func getIntField(m map[string]any, key string, defaultVal int) int {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return int(n)
-		case int:
-			return n
-		case json.Number:
-			i, err := n.Int64()
-			if err == nil {
-				return int(i)
-			}
-		}
-	}
-	return defaultVal
-}
-
-func getBoolField(m map[string]any, key string) bool {
-	if v, ok := m[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return false
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// sanitizeImport strips unknown keys to prevent injection.
-var importWhitelist = map[string]map[string]bool{
-	"mcp": {
-		"url": true, "auth_header_name": true, "auth_scheme": true,
-		"timeout_seconds": true, "sse_read_timeout_seconds": true,
-		"tools": true, "command": true, "args": true, "cwd": true,
-		"env": true, "encoding": true, "headers": true,
-	},
-	"privacy": {
-		"salt": true, "salt_env": true, "alias_length": true,
-		"numeric_threshold": true, "show_masked_data_in_viewer": true,
-	},
-	"defaults": {
-		"result_preview_chars": true, "auto_send_to_agent": true,
-		"skip_numeric_values": true, "allow_plain_fields": true,
-	},
-	"auth": {"token": true},
-}
-
-func sanitizeImport(data map[string]any) map[string]any {
-	clean := make(map[string]any)
-	for section, allowedKeys := range importWhitelist {
-		raw, ok := data[section].(map[string]any)
-		if !ok {
-			continue
-		}
-		filtered := make(map[string]any)
-		for k, v := range raw {
-			if allowedKeys[k] {
-				filtered[k] = v
-			}
-		}
-		clean[section] = filtered
-	}
-	return clean
-}
-
