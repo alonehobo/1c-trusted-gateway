@@ -36,6 +36,7 @@ type TrustedWebApp struct {
 	HasSavedSettings   bool
 	ResultRows      []map[string]any
 	ResultHeaders   []string
+	ColumnOrder     []string
 	MaskedResultRows    []map[string]any
 	MaskedResultHeaders []string
 	MaskedColumns       []string
@@ -753,6 +754,7 @@ func (app *TrustedWebApp) bridgeRunQuery(task, queryText, mode string, fromBridg
 	app.PlaceholderError = false
 	app.ResultRows = nil
 	app.ResultHeaders = nil
+	app.ColumnOrder = nil
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
@@ -1033,7 +1035,7 @@ func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[s
 
 	if session.Mode == "masked" {
 		// Structured JSON result — show as table like a normal query
-		app.extractRows(session.DisplayRows)
+		app.extractRows(session.DisplayRows, session.ColumnOrder)
 		app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
 		app.ActiveTab = "result"
 		app.AnalysisMasked = ""
@@ -1103,7 +1105,7 @@ func (app *TrustedWebApp) onSessionReady(session *TrustedSession) {
 	if app.TaskText == "" {
 		app.TaskText = "Задача без названия"
 	}
-	app.extractRows(session.DisplayRows)
+	app.extractRows(session.DisplayRows, session.ColumnOrder)
 	app.extractMaskedRows(session.MaskedRows, session.MaskedColumns, session.UnmaskedColumns)
 	app.queryVersion++
 	app.QueryPreview = session.QueryText
@@ -1159,6 +1161,7 @@ func (app *TrustedWebApp) onQueryFailed(task, mode, message string) {
 	app.TaskText = task
 	app.ResultRows = nil
 	app.ResultHeaders = nil
+	app.ColumnOrder = nil
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
@@ -1190,6 +1193,7 @@ func (app *TrustedWebApp) clearSessionLocked() {
 
 	app.ResultRows = nil
 	app.ResultHeaders = nil
+	app.ColumnOrder = nil
 	app.MaskedResultRows = nil
 	app.MaskedResultHeaders = nil
 	app.MaskedColumns = nil
@@ -1235,16 +1239,17 @@ func (app *TrustedWebApp) handleCancelQuery() map[string]any {
 	return map[string]any{"ok": false, "error": "Нет активного запроса."}
 }
 
-func (app *TrustedWebApp) extractRows(rows []map[string]any) {
+func (app *TrustedWebApp) extractRows(rows []map[string]any, columnOrder []string) {
 	app.ResultRows = rows
-	app.ResultHeaders = extractHeadersFromRows(rows)
+	app.ColumnOrder = columnOrder
+	app.ResultHeaders = extractHeadersFromRows(rows, columnOrder)
 }
 
 func (app *TrustedWebApp) extractMaskedRows(rows []map[string]any, maskedCols, unmaskedCols []string) {
 	app.MaskedResultRows = rows
 	app.MaskedColumns = maskedCols
 	app.UnmaskedColumns = unmaskedCols
-	app.MaskedResultHeaders = extractHeadersFromRows(rows)
+	app.MaskedResultHeaders = extractHeadersFromRows(rows, app.ColumnOrder)
 	app.dataVersion++
 }
 
@@ -1283,7 +1288,23 @@ func (app *TrustedWebApp) applyFilteredBundle(rawIndices []any) {
 	session.cachedBundle = "" // clear filtered cache so next call recomputes from full rows
 }
 
-func extractHeadersFromRows(rows []map[string]any) []string {
+func extractHeadersFromRows(rows []map[string]any, columnOrder []string) []string {
+	if len(columnOrder) > 0 {
+		seen := make(map[string]bool)
+		for _, col := range columnOrder {
+			seen[col] = true
+		}
+		result := append([]string{}, columnOrder...)
+		for _, row := range rows {
+			for key := range row {
+				if !seen[key] {
+					seen[key] = true
+					result = append(result, key)
+				}
+			}
+		}
+		return result
+	}
 	var headers []string
 	seen := make(map[string]bool)
 	for _, row := range rows {

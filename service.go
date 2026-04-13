@@ -18,6 +18,7 @@ type TrustedSession struct {
 	QueryText        string            `json:"query_text"`
 	Mode             string            `json:"mode"` // "masked", "direct", "code_masked"
 	DisplayRows      []map[string]any  `json:"display_rows"`
+	ColumnOrder      []string          `json:"column_order,omitempty"`
 	MaskedRows       []map[string]any  `json:"masked_rows"`
 	MaskedColumns    []string          `json:"masked_columns"`
 	UnmaskedColumns  []string          `json:"unmasked_columns"`
@@ -141,6 +142,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	}
 
 	rows := extractRows(result.Structured, result.Text)
+	columnOrder := extractColumnOrderFromJSON(result.Text)
 
 	const maxRows = 5000
 	totalParsedRows := len(rows)
@@ -154,6 +156,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	session.Task = task
 	session.QueryText = queryText
 	session.Mode = mode
+	session.ColumnOrder = columnOrder
 	session.RawResultPreview = result.Preview(rt.Config.Defaults.ResultPreviewChars)
 	session.ResultIsEmpty = len(rows) == 0
 	session.Diagnostic = map[string]any{
@@ -237,11 +240,13 @@ func (rt *TrustedGatewayRuntime) ExecuteCode(
 	if err := json.Unmarshal([]byte(rawText), &parsed); err == nil {
 		rows := jsonToRows(parsed)
 		if len(rows) > 0 {
+			columnOrder := extractColumnOrderFromJSON(rawText)
 			sanitizer := rt.runtimeSanitizer(token)
 			sanitizer.skipNumeric = true
 			sanitized := sanitizer.SanitizeRows(rows, nil, nil)
 
 			session.Mode = "masked"
+			session.ColumnOrder = columnOrder
 			session.DisplayRows = sanitized.DisplayRows
 			session.MaskedRows = sanitized.MaskedRows
 			session.MaskedColumns = sanitized.MaskedColumns
@@ -384,6 +389,98 @@ func looksLike1CQueryError(text string) bool {
 	return strings.HasPrefix(normalized, "{(") && strings.Contains(normalized, ")}:")
 }
 
+
+// extractColumnOrderFromJSON extracts key order from the first object in a JSON array/object.
+func extractColumnOrderFromJSON(rawText string) []string {
+	rawText = strings.TrimSpace(rawText)
+	if rawText == "" {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(rawText))
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if delim == '[' {
+		return extractKeysFromNextObject(dec)
+	}
+	if delim == '{' {
+		// Wrapper object like {"rows": [...]} — find array value
+		for dec.More() {
+			keyTok, err := dec.Token()
+			if err != nil {
+				return nil
+			}
+			key, ok := keyTok.(string)
+			if !ok {
+				return nil
+			}
+			if key == "rows" || key == "items" || key == "data" || key == "result" {
+				arrTok, err := dec.Token()
+				if err != nil {
+					return nil
+				}
+				if d, ok := arrTok.(json.Delim); ok && d == '[' {
+					return extractKeysFromNextObject(dec)
+				}
+			}
+			skipJSONValue(dec)
+		}
+	}
+	return nil
+}
+
+func extractKeysFromNextObject(dec *json.Decoder) []string {
+	if !dec.More() {
+		return nil
+	}
+	tok, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return nil
+	}
+	var keys []string
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		if key, ok := keyTok.(string); ok {
+			keys = append(keys, key)
+		}
+		skipJSONValue(dec)
+	}
+	return keys
+}
+
+func skipJSONValue(dec *json.Decoder) {
+	tok, err := dec.Token()
+	if err != nil {
+		return
+	}
+	if d, ok := tok.(json.Delim); ok && (d == '{' || d == '[') {
+		depth := 1
+		for depth > 0 {
+			t, err := dec.Token()
+			if err != nil {
+				return
+			}
+			if dd, ok := t.(json.Delim); ok {
+				if dd == '{' || dd == '[' {
+					depth++
+				} else {
+					depth--
+				}
+			}
+		}
+	}
+}
 
 // extractRows extracts row data from structured or text MCP response.
 func extractRows(structured any, rawText string) []map[string]any {

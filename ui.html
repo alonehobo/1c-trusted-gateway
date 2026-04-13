@@ -83,10 +83,8 @@ body {
 #header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; }
 #header .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 #header .logo-icon {
-  width: 28px; height: 28px; border-radius: 8px;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 13px; color: #fff; letter-spacing: -0.5px;
+  width: 28px; height: 28px; border-radius: 6px;
+  object-fit: contain;
 }
 #header .logo-text { font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; }
 #header .logo-version { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
@@ -199,6 +197,18 @@ input::placeholder { color: var(--text-tertiary); }
 .btn-icon:hover { background: var(--surface-hover); color: var(--text-primary); }
 
 .btn-xs { padding: 3px 8px; font-size: 11px; }
+.mode-toggle {
+  display: inline-flex; border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface);
+}
+.mode-toggle-opt {
+  padding: 2px 10px; font-size: 11px; cursor: pointer; user-select: none;
+  transition: all var(--transition); color: var(--text-secondary);
+}
+.mode-toggle-opt:hover { background: var(--surface-hover); }
+.mode-toggle-opt.active {
+  background: var(--accent); color: #fff; font-weight: 600;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Toolbar — Tabs + Task + State
@@ -299,6 +309,8 @@ input::placeholder { color: var(--text-tertiary); }
 #result-table th.col-masked::before { content: "\1F512 "; font-size: 10px; }
 #result-table th.col-open { color: var(--success, #4caf50); }
 #result-table th.col-cipher { color: var(--accent); font-style: italic; opacity: 0.7; }
+#result-table th.col-original { color: var(--text-tertiary); font-style: italic; font-size: 10px; }
+#result-table td.cell-original { color: var(--text-tertiary); font-style: italic; opacity: 0.7; }
 #result-table td {
   padding: 7px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: top;
   max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -309,6 +321,7 @@ input::placeholder { color: var(--text-tertiary); }
 #result-table tbody td { user-select: none; -webkit-user-select: none; }
 #result-table tbody td.cell-selected { background: var(--table-selected) !important; }
 #result-table tbody td.cell-anchor { box-shadow: inset 0 0 0 1.5px var(--accent); }
+#result-table tbody td.cell-masked-value { background: var(--warning-soft); opacity: 0.85; }
 #result-table tbody tr:last-child td { border-bottom: none; }
 
 /* Masked table */
@@ -391,6 +404,23 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 .split-h { flex-direction: row; }
 .split-v { flex-direction: column; }
 .split-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+
+/* Draggable splitter */
+.splitter {
+  flex: 0 0 6px; cursor: col-resize; background: transparent; position: relative;
+  transition: background 0.15s;
+}
+.splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); width: 2px; height: 32px;
+  background: var(--border); border-radius: 1px; transition: background 0.15s, height 0.15s;
+}
+.splitter:hover::after, .splitter.dragging::after {
+  background: var(--accent); height: 48px;
+}
+.splitter.dragging { background: var(--accent-soft); }
+body.splitter-dragging { cursor: col-resize !important; user-select: none !important; }
+body.splitter-dragging * { cursor: col-resize !important; }
 
 .pane-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -483,12 +513,318 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* Ace Autocomplete styling */
+.ace_autocomplete {
+  background: var(--bg-panel) !important; border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-lg) !important; border-radius: var(--radius) !important;
+  color: var(--text-primary) !important; font-size: 12px !important;
+}
+.ace_autocomplete .ace_marker-layer .ace_active-line { background: var(--surface-hover) !important; }
+.ace_autocomplete .ace_line { color: var(--text-primary) !important; }
+.ace_autocomplete .ace_completion-highlight { color: var(--accent) !important; font-weight: 600; }
+.ace_autocomplete .ace_rightAlignedText { color: var(--text-tertiary) !important; font-size: 10px; }
+
+/* Context menu */
+.table-ctx-menu {
+  position: fixed; z-index: 150; min-width: 180px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); padding: 4px 0; font-size: 12px;
+}
+.table-ctx-menu .ctx-item {
+  padding: 6px 14px; cursor: pointer; color: var(--text-primary);
+  transition: background 0.1s;
+}
+.table-ctx-menu .ctx-item:hover { background: var(--surface-hover); }
+.table-ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
 /* ═══════════════════════════════════════════════════════════════
    Animations
    ═══════════════════════════════════════════════════════════════ */
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .tab-panel.active { animation: fadeIn 0.15s ease-out; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Onboarding Overlay
+   ═══════════════════════════════════════════════════════════════ */
+
+.onboarding-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.3s ease-out;
+}
+.onboarding-card {
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  width: 420px; max-width: 90vw; padding: 32px;
+}
+.onboarding-card h2 {
+  font-size: 18px; font-weight: 700; margin-bottom: 4px; color: var(--text-primary);
+}
+.onboarding-card .ob-subtitle {
+  font-size: 12px; color: var(--text-tertiary); margin-bottom: 20px;
+}
+.onboarding-steps { display: flex; gap: 8px; margin-bottom: 20px; }
+.onboarding-step-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border); transition: background var(--transition);
+}
+.onboarding-step-dot.active { background: var(--accent); }
+.onboarding-step-dot.done { background: var(--success); }
+.onboarding-field { margin-bottom: 14px; }
+.onboarding-field label {
+  display: block; font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+}
+.onboarding-field input {
+  width: 100%; padding: 8px 12px; font-size: 13px;
+  background: var(--input-bg); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); color: var(--text-primary);
+}
+.onboarding-field input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.onboarding-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+.onboarding-status {
+  font-size: 12px; padding: 8px 12px; border-radius: var(--radius-xs); margin-top: 12px;
+}
+.onboarding-status.ok { background: var(--success-soft); color: var(--success); }
+.onboarding-status.err { background: var(--error-soft); color: var(--error); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Guided Tour
+   ═══════════════════════════════════════════════════════════════ */
+
+.tour-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  pointer-events: auto;
+}
+.tour-spotlight {
+  position: fixed; z-index: 301;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.tour-spotlight::after {
+  content: '';
+  position: absolute; inset: -3px;
+  border: 2px solid var(--accent);
+  border-radius: inherit;
+  animation: tourPulse 2s ease-in-out infinite;
+}
+@keyframes tourPulse {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 6px var(--accent); }
+  50% { opacity: 1; box-shadow: 0 0 16px var(--accent); }
+}
+.tour-tooltip {
+  position: fixed; z-index: 302;
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 16px 20px; max-width: 360px; min-width: 260px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+.tour-tooltip-title {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+}
+.tour-tooltip-text {
+  font-size: 12.5px; line-height: 1.5; color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+.tour-tooltip-text kbd {
+  display: inline-block; padding: 1px 5px; font-size: 11px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; font-family: inherit; color: var(--text-primary);
+}
+.tour-progress {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 12px;
+}
+.tour-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border); transition: all 0.2s;
+}
+.tour-dot.active { background: var(--accent); transform: scale(1.3); }
+.tour-dot.done { background: var(--success); }
+.tour-counter {
+  font-size: 11px; color: var(--text-tertiary); margin-left: 6px;
+}
+.tour-actions {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.tour-actions-left { display: flex; gap: 6px; }
+.tour-actions-right { display: flex; gap: 6px; }
+.tour-arrow {
+  position: absolute; width: 12px; height: 12px;
+  background: var(--bg-1); border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.tour-arrow.top { bottom: -7px; left: 24px; border-top: none; border-left: none; }
+.tour-arrow.bottom { top: -7px; left: 24px; border-bottom: none; border-right: none; }
+.tour-arrow.left { right: -7px; top: 20px; border-bottom: none; border-left: none; }
+.tour-arrow.right { left: -7px; top: 20px; border-top: none; border-right: none; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Query History Dropdown
+   ═══════════════════════════════════════════════════════════════ */
+
+.history-dropdown {
+  position: absolute; top: 100%; left: 0; z-index: 150;
+  min-width: 360px; max-height: 320px; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+  margin-top: 4px;
+}
+.history-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition);
+}
+.history-item:last-child { border-bottom: none; }
+.history-item:hover { background: var(--surface-hover); }
+.history-query {
+  font-family: 'Cascadia Code', monospace; font-size: 11px;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; flex: 1; min-width: 0;
+}
+.history-name {
+  font-size: 11px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1; min-width: 0;
+}
+.history-name-edit {
+  cursor: pointer; border-bottom: 1px dashed var(--border);
+}
+.history-name-edit:hover { color: var(--accent); }
+.history-meta {
+  font-size: 10px; color: var(--text-tertiary); white-space: nowrap; margin-left: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.history-empty {
+  padding: 16px; text-align: center; font-size: 12px; color: var(--text-tertiary);
+}
+.history-footer {
+  padding: 6px 12px; text-align: right; border-top: 1px solid var(--border);
+}
+.history-section-title {
+  padding: 6px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-tertiary); background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.history-item .history-del {
+  font-size: 12px; color: var(--text-tertiary); cursor: pointer; padding: 2px 4px;
+  border-radius: 3px; opacity: 0; transition: all var(--transition); flex-shrink: 0;
+}
+.history-item:hover .history-del { opacity: 1; }
+.history-item .history-del:hover { color: var(--error); background: var(--error-soft); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Theme Toggle Switch
+   ═══════════════════════════════════════════════════════════════ */
+
+.theme-toggle {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+}
+.theme-toggle svg { width: 14px; height: 14px; color: var(--text-tertiary); flex-shrink: 0; }
+.theme-toggle .toggle-track {
+  width: 32px; height: 18px; border-radius: 9px; background: var(--surface-active);
+  border: 1px solid var(--border); position: relative; transition: all var(--transition);
+  flex-shrink: 0;
+}
+.theme-toggle .toggle-thumb {
+  width: 14px; height: 14px; border-radius: 50%; background: var(--accent);
+  position: absolute; top: 1px; left: 1px; transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Table Font Scaling
+   ═══════════════════════════════════════════════════════════════ */
+
+.font-scale-btns { display: inline-flex; align-items: center; gap: 2px; }
+.font-scale-btns .btn { padding: 3px 6px; font-size: 11px; min-width: 24px; text-align: center; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Tag Flash Animation
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes tagFlashGreen {
+  0% { box-shadow: 0 0 0 0 var(--success); }
+  50% { box-shadow: 0 0 8px 2px var(--success); }
+  100% { box-shadow: none; }
+}
+@keyframes tagFlashWarning {
+  0% { box-shadow: 0 0 0 0 var(--warning); }
+  50% { box-shadow: 0 0 8px 2px var(--warning); }
+  100% { box-shadow: none; }
+}
+.tag-flash-open { animation: tagFlashGreen 0.5s ease-out; }
+.tag-flash-mask { animation: tagFlashWarning 0.5s ease-out; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Settings Sub-Tabs
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-subtabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+}
+.settings-subtab {
+  padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--text-tertiary); border-bottom: 2px solid transparent;
+  background: none; border-top: none; border-left: none; border-right: none;
+  transition: all var(--transition);
+}
+.settings-subtab:hover { color: var(--text-secondary); }
+.settings-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.settings-subpanel { display: none; }
+.settings-subpanel.active { display: block; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Fields Table (masking settings)
+   ═══════════════════════════════════════════════════════════════ */
+
+.fields-toolbar {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+}
+.fields-toolbar input {
+  flex: 1; min-width: 140px; padding: 6px 10px; font-size: 12px;
+  background: var(--input-bg); border: 1px solid var(--input-border);
+  border-radius: var(--radius-xs); color: var(--text-primary);
+}
+.fields-toolbar input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+.fields-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.fields-table th {
+  text-align: left; padding: 6px 10px; font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-tertiary); background: var(--table-header);
+  border-bottom: 1px solid var(--border); cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+.fields-table th:hover { color: var(--text-secondary); }
+.fields-table th .sort-arrow { margin-left: 4px; font-size: 10px; }
+.fields-table td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.fields-table tr:hover td { background: var(--table-row-hover); }
+.fields-table .ft-type {
+  font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; white-space: nowrap;
+}
+.ft-type-allow { background: var(--success-soft); color: var(--success); }
+.ft-type-force { background: var(--warning-soft); color: var(--warning); }
+.fields-table .ft-actions { text-align: right; white-space: nowrap; }
+.fields-table .ft-del {
+  background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+  font-size: 14px; padding: 2px 6px; border-radius: 3px; transition: all var(--transition);
+}
+.fields-table .ft-del:hover { color: var(--error); background: var(--error-soft); }
+.fields-empty {
+  padding: 24px; text-align: center; color: var(--text-tertiary); font-size: 12px;
+}
 </style>
 </head>
 <body class="theme-dark">
@@ -497,7 +833,7 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
   <!-- ══════ Header ══════ -->
   <div id="header" class="panel">
     <div class="logo">
-      <div class="logo-icon">TG</div>
+      <img class="logo-icon" src="/api/icon" alt="TG">
       <span class="logo-text">Trusted Gateway</span>
     </div>
 
@@ -524,12 +860,11 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       <span class="bridge-addr" id="bridge-addr" style="display:none"></span>
       <code id="bridge-secret-text" style="display:none">—</code>
       <div class="divider-v"></div>
-      <button class="btn btn-icon" onclick="setTheme('light')" title="Светлая тема">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-      </button>
-      <button class="btn btn-icon" onclick="setTheme('dark')" title="Тёмная тема">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
+      <div class="theme-toggle" onclick="toggleTheme()" title="Переключить тему">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <div class="toggle-track"><div class="toggle-thumb"></div></div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </div>
     </div>
   </div>
 
@@ -579,8 +914,14 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
         <span class="row-count" id="row-count"></span>
         <button class="btn btn-ghost btn-xs" onclick="copyAllRows()">Копировать все</button>
         <button class="btn btn-ghost btn-xs" onclick="copyCellSelection()">Выделение</button>
+        <button class="btn btn-ghost btn-xs" onclick="exportCSV()" title="Экспорт результатов в CSV">&#128190; CSV</button>
+        <span class="font-scale-btns">
+          <button class="btn btn-ghost btn-xs" onclick="scaleTable(-1)" title="Уменьшить шрифт таблицы">A-</button>
+          <button class="btn btn-ghost btn-xs" onclick="scaleTable(1)" title="Увеличить шрифт таблицы">A+</button>
+        </span>
         <span style="flex-grow:1"></span>
         <span id="rate-limit-warning" style="display:none; color:#ff6b6b; font-size:11px; font-weight:600; margin-left:4px;"></span>
+        <button class="btn btn-xs" id="toggle-originals-btn" onclick="toggleOriginals()" title="Показать/скрыть оригинальные значения рядом с маскированными" style="display:none; padding:4px 12px; font-size:12px; font-weight:600; border:1px solid var(--border); border-radius:4px;">&#128065; Оригинал</button>
         <button class="btn btn-primary btn-xs" id="approve-send-btn" style="visibility:hidden" onclick="doApproveSend()">&#9654; Отправить агенту</button>
       </div>
       <div id="filter-rows"></div>
@@ -602,6 +943,17 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
       </div>
       <div class="result-placeholder" id="result-placeholder">Результат появится здесь после выполнения запроса</div>
 
+      <!-- Context menu for table -->
+      <div id="table-ctx-menu" class="table-ctx-menu" style="display:none;">
+        <div class="ctx-item" data-action="copy-value">Копировать значение</div>
+        <div class="ctx-item" data-action="copy-column">Копировать столбец</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" data-action="filter-value">Фильтровать по значению</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" data-action="allow-column">Открыть столбец</div>
+        <div class="ctx-item" data-action="mask-column">Зашифровать столбец</div>
+      </div>
+
       <!-- masked data merged into main table -->
     </div>
 
@@ -618,23 +970,31 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
 
     <!-- Tab: Raw (MCP) -->
     <div id="tab-raw" class="tab-panel active">
-      <div class="split-h" style="flex:1; min-height:0;">
-        <div class="split-pane" style="flex:0 0 40%; max-width:40%; display:flex; flex-direction:column;">
+      <div class="split-h" id="mcp-split" style="flex:1; min-height:0; gap:0;">
+        <div class="split-pane" id="editor-pane" style="flex:0 0 40%; max-width:60%; min-width:200px; display:flex; flex-direction:column;">
           <div class="pane-header" style="display:flex; align-items:center; justify-content:space-between;">
             <span style="display:flex; align-items:center; gap:4px;">
-              <button class="btn btn-ghost btn-xs" id="mode-query-btn" onclick="setEditorMode(false)" title="Режим запроса">Запрос</button>
-              <button class="btn btn-ghost btn-xs" id="mode-code-btn" onclick="setEditorMode(true)" title="Режим кода BSL">Код</button>
+              <span class="mode-toggle" title="Переключить режим редактора">
+                <span class="mode-toggle-opt" id="mode-query-btn" onclick="setEditorMode(false)">Запрос</span>
+                <span class="mode-toggle-opt" id="mode-code-btn" onclick="setEditorMode(true)">Код</span>
+              </span>
+              <span style="position:relative;">
+                <button class="btn btn-ghost btn-xs" onclick="toggleHistory()" title="История запросов (Ctrl+Shift+H)">&#128337; История</button>
+                <div id="history-dropdown" class="history-dropdown" style="display:none"></div>
+              </span>
+              <button class="btn btn-ghost btn-xs" onclick="saveCurrentQuery()" title="Сохранить текущий запрос в закладки">&#11088; Сохранить</button>
             </span>
             <span style="display:flex; gap:4px;">
-              <button class="btn btn-primary btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос">&#9654; Выполнить</button>
-              <button class="btn btn-primary btn-xs" id="btn-approve-code" style="display:none" onclick="doApproveCode()" title="Одобрить и выполнить код">&#9654; Выполнить код</button>
+              <button class="btn btn-primary btn-xs" onclick="doQuery('masked')" id="btn-query-masked" title="Выполнить запрос (Ctrl+Enter)">&#9654; Выполнить</button>
+              <button class="btn btn-primary btn-xs" id="btn-approve-code" style="display:none" onclick="doApproveCode()" title="Одобрить и выполнить код (Ctrl+Enter)">&#9654; Выполнить</button>
               <button class="btn btn-ghost btn-xs" id="btn-reject-code" style="display:none; color:var(--warning)" onclick="doRejectCode()" title="Отклонить выполнение кода">&#10006; Отклонить</button>
-              <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить">&#9940; Отмена</button>
+              <button class="btn btn-ghost btn-xs" id="cancel-btn" style="display:none; color:var(--warning)" onclick="doCancelQuery()" title="Отменить (Escape)">&#9940; Отмена</button>
             </span>
           </div>
           <div id="query-editor" style="flex:1; overflow:auto; border-top:1px solid var(--border);"></div>
         </div>
-        <div class="split-pane" style="flex:1; min-height:0;">
+        <div class="splitter" id="pane-splitter"></div>
+        <div class="split-pane" id="result-pane" style="flex:1; min-width:200px;">
           <div class="pane-header" id="raw-response-label">Ответ MCP</div>
           <div class="text-panel" id="raw-response"></div>
         </div>
@@ -644,78 +1004,117 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
     <!-- Tab: Settings -->
     <div id="tab-settings" class="tab-panel">
       <div class="settings-scroll">
-        <div class="settings-grid">
 
-          <fieldset class="settings-section">
-            <legend>MCP Сервер</legend>
-            <label class="settings-field">
-              <span class="settings-label">URL сервера</span>
-              <input type="text" id="s-mcp-url" class="settings-input" placeholder="http://server:3080/work/hs/mcp/">
-            </label>
-            <label class="settings-field">
-              <span class="settings-label">Ключ авторизации</span>
-              <div class="settings-input-wrap">
-                <input type="password" id="s-mcp-token" class="settings-input" placeholder="Введите ключ или оставьте пустым">
-                <button type="button" class="btn btn-ghost btn-xs settings-eye" onclick="toggleTokenVis()">&#128065;</button>
-              </div>
-              <span class="settings-hint" id="s-token-hint" style="display:none">Текущий ключ сохранён. Оставьте поле пустым, чтобы не менять.</span>
-            </label>
-          </fieldset>
+        <div class="settings-subtabs">
+          <button class="settings-subtab active" onclick="showSettingsSub('general',this)">Основные</button>
+          <button class="settings-subtab" onclick="showSettingsSub('fields',this)">Поля маскирования</button>
+        </div>
 
-          <fieldset class="settings-section">
-            <legend>Маскирование полей</legend>
-            <span class="settings-hint" style="margin-bottom:6px;display:block">Политика: <b>все поля шифруются по умолчанию</b>. Только перечисленные ниже поля и поля, содержащие ключевые слова (<span id="s-keywords-hint"></span>), передаются открыто.</span>
-            <label class="settings-field">
-              <span class="settings-label">Не шифровать (через запятую)</span>
-              <textarea id="s-allow-plain" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые не маскировать (например: Код, Артикул)"></textarea>
-              <span class="settings-hint">Эти поля будут передаваться агенту открыто.</span>
-            </label>
-            <label class="settings-field">
-              <span class="settings-label">Шифровать принудительно (через запятую)</span>
-              <textarea id="s-force-mask" class="settings-input settings-textarea" rows="2" placeholder="Поля, которые шифровать даже если числа разрешены (например: ИНН, КПП, Серия)"></textarea>
-              <span class="settings-hint">По умолчанию: ИНН, КПП, СНИЛС, ОГРН, БИК, Серия. Добавьте свои поля при необходимости.</span>
-            </label>
-          </fieldset>
+        <!-- Sub-tab: General -->
+        <div id="settings-sub-general" class="settings-subpanel active">
+          <div class="settings-grid">
 
-          <fieldset class="settings-section">
-            <legend>Параметры</legend>
-            <div class="settings-row">
+            <fieldset class="settings-section">
+              <legend>MCP Сервер</legend>
               <label class="settings-field">
-                <span class="settings-label">Превью результата (символов)</span>
-                <input type="number" id="s-preview-chars" class="settings-input settings-input-short" min="100" step="100">
+                <span class="settings-label">URL сервера</span>
+                <input type="text" id="s-mcp-url" class="settings-input" placeholder="http://server:3080/work/hs/mcp/">
               </label>
-              <label class="settings-field settings-check-wrap">
-                <input type="checkbox" id="s-auto-send">
-                <span class="settings-label">Авто-режим (отправлять данные агенту без подтверждения)</span>
+              <label class="settings-field">
+                <span class="settings-label">Ключ авторизации</span>
+                <div class="settings-input-wrap">
+                  <input type="password" id="s-mcp-token" class="settings-input" placeholder="Введите ключ или оставьте пустым">
+                  <button type="button" class="btn btn-ghost btn-xs settings-eye" onclick="toggleTokenVis()">&#128065;</button>
+                </div>
+                <span class="settings-hint" id="s-token-hint" style="display:none">Текущий ключ сохранён. Оставьте поле пустым, чтобы не менять.</span>
               </label>
-              <label class="settings-field settings-check-wrap">
-                <input type="checkbox" id="s-skip-numeric">
-                <span class="settings-label">Не шифровать числовые значения (суммы, количества, цены)</span>
-              </label>
-            </div>
-          </fieldset>
+            </fieldset>
 
-          <fieldset class="settings-section">
-            <legend>NER-правила (execute_code)</legend>
-            <div class="settings-row">
-              <span class="settings-label" id="ner-status" style="font-size:12px; color:var(--text-secondary);">Загрузка...</span>
-            </div>
-            <div class="settings-row" style="gap:8px; margin-top:8px;">
-              <button class="btn btn-ghost btn-xs" onclick="nerExportTemplate()">Экспорт шаблона</button>
-              <button class="btn btn-ghost btn-xs" onclick="nerReload()">Перезагрузить правила</button>
-            </div>
-          </fieldset>
+            <fieldset class="settings-section">
+              <legend>Параметры</legend>
+              <div class="settings-row">
+                <label class="settings-field">
+                  <span class="settings-label">Превью результата (символов)</span>
+                  <input type="number" id="s-preview-chars" class="settings-input settings-input-short" min="100" step="100">
+                </label>
+                <label class="settings-field settings-check-wrap">
+                  <input type="checkbox" id="s-auto-send">
+                  <span class="settings-label">Авто-режим (отправлять данные агенту без подтверждения)</span>
+                </label>
+                <label class="settings-field settings-check-wrap">
+                  <input type="checkbox" id="s-skip-numeric">
+                  <span class="settings-label">Не шифровать числовые значения (суммы, количества, цены)</span>
+                </label>
+                <label class="settings-field settings-check-wrap">
+                  <input type="checkbox" id="s-sound-notify">
+                  <span class="settings-label">Звуковые уведомления при ожидании одобрения</span>
+                </label>
+              </div>
+            </fieldset>
 
-          <div class="settings-actions">
-            <button class="btn btn-primary" onclick="saveSettings()">&#128190; Сохранить</button>
-            <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
-            <button class="btn btn-ghost" onclick="exportSettings()">&#128228; Экспорт</button>
-            <label class="btn btn-ghost settings-import-label">
-              &#128229; Импорт
-              <input type="file" id="s-import-file" accept=".json" style="display:none" onchange="importSettings(this)">
-            </label>
+            <fieldset class="settings-section">
+              <legend>NER-правила (execute_code)</legend>
+              <div class="settings-row">
+                <span class="settings-label" id="ner-status" style="font-size:12px; color:var(--text-secondary);">Загрузка...</span>
+              </div>
+              <div class="settings-row" style="gap:8px; margin-top:8px;">
+                <button class="btn btn-ghost btn-xs" onclick="nerExportTemplate()">Экспорт шаблона</button>
+                <button class="btn btn-ghost btn-xs" onclick="nerReload()">Перезагрузить правила</button>
+              </div>
+            </fieldset>
+
+            <div class="settings-actions">
+              <button class="btn btn-primary" onclick="saveSettings()" title="Сохранить настройки (Ctrl+S)">&#128190; Сохранить</button>
+              <button class="btn btn-ghost" onclick="resetSettings()">&#8617; Сбросить</button>
+              <button class="btn btn-ghost" onclick="tourStart()">&#127891; Обучение</button>
+              <button class="btn btn-ghost" onclick="exportSettings()">&#128228; Экспорт</button>
+              <label class="btn btn-ghost settings-import-label">
+                &#128229; Импорт
+                <input type="file" id="s-import-file" accept=".json" style="display:none" onchange="importSettings(this)">
+              </label>
+            </div>
           </div>
         </div>
+
+        <!-- Sub-tab: Fields -->
+        <div id="settings-sub-fields" class="settings-subpanel">
+          <div class="settings-grid" style="max-width:800px;">
+
+            <span class="settings-hint" style="margin-bottom:4px;display:block">
+              Политика: <b>все поля шифруются по умолчанию</b>. Поля из белого списка и содержащие ключевые слова
+              (<span id="s-keywords-hint"></span>) передаются открыто.
+            </span>
+
+            <div class="fields-toolbar">
+              <input type="text" id="ft-new-field" placeholder="Имя поля..." onkeydown="if(event.key==='Enter'){ftAddField();event.preventDefault();}">
+              <button class="btn btn-primary btn-xs" onclick="ftAddField()" title="Добавить в белый список">+ Разрешить</button>
+              <button class="btn btn-ghost btn-xs" onclick="ftAddFieldForce()" title="Добавить в принудительное шифрование" style="color:var(--warning)">+ Шифровать</button>
+              <span style="flex:1"></span>
+              <input type="text" id="ft-filter" placeholder="Фильтр..." oninput="ftRenderTable()" style="flex:0 0 140px;">
+            </div>
+
+            <table class="fields-table" id="fields-table">
+              <thead>
+                <tr>
+                  <th onclick="ftSort('name')">Поле <span class="sort-arrow" id="ft-sort-name"></span></th>
+                  <th onclick="ftSort('type')" style="width:120px; text-align:right">Тип <span class="sort-arrow" id="ft-sort-type"></span></th>
+                </tr>
+              </thead>
+              <tbody id="ft-body"></tbody>
+            </table>
+            <div id="ft-empty" class="fields-empty" style="display:none">Нет полей. Добавьте через поле ввода выше.</div>
+
+            <!-- Hidden textareas for save compatibility -->
+            <textarea id="s-allow-plain" style="display:none"></textarea>
+            <textarea id="s-force-mask" style="display:none"></textarea>
+
+            <div class="settings-actions" style="margin-top:16px;">
+              <button class="btn btn-primary" onclick="saveSettings()" title="Сохранить настройки (Ctrl+S)">&#128190; Сохранить</button>
+            </div>
+
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -731,6 +1130,68 @@ textarea.text-panel:focus { border-color: var(--accent); box-shadow: 0 0 0 3px v
     </span>
   </div>
 
+</div>
+
+<!-- ══════ Onboarding Overlay ══════ -->
+<div class="onboarding-overlay" id="onboarding" style="display:none">
+  <div class="onboarding-card">
+    <h2>Trusted Gateway</h2>
+    <div class="ob-subtitle">Настройка подключения к серверу 1С</div>
+    <div class="onboarding-steps">
+      <div class="onboarding-step-dot active" id="ob-dot-0"></div>
+      <div class="onboarding-step-dot" id="ob-dot-1"></div>
+      <div class="onboarding-step-dot" id="ob-dot-2"></div>
+    </div>
+
+    <!-- Step 0: URL -->
+    <div id="ob-step-0">
+      <div class="onboarding-field">
+        <label>MCP Server URL</label>
+        <input type="text" id="ob-url" placeholder="http://localhost:8085">
+      </div>
+    </div>
+
+    <!-- Step 1: Key -->
+    <div id="ob-step-1" style="display:none">
+      <div class="onboarding-field">
+        <label>Ключ доступа</label>
+        <input type="password" id="ob-token" placeholder="Введите ключ (если требуется)">
+      </div>
+    </div>
+
+    <!-- Step 2: Check -->
+    <div id="ob-step-2" style="display:none">
+      <div style="font-size:13px; color:var(--text-secondary); text-align:center; padding:8px 0;">
+        Проверяю подключение...
+      </div>
+    </div>
+
+    <div id="ob-status" class="onboarding-status" style="display:none"></div>
+
+    <div class="onboarding-actions">
+      <button class="btn btn-ghost" onclick="onboardingSkip()">Пропустить</button>
+      <button class="btn btn-primary" id="ob-next-btn" onclick="onboardingNext()">Далее</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ Guided Tour Overlay ══════ -->
+<div id="tour-overlay" class="tour-overlay" style="display:none"></div>
+<div id="tour-spotlight" class="tour-spotlight" style="display:none"></div>
+<div id="tour-tooltip" class="tour-tooltip" style="display:none">
+  <div class="tour-arrow" id="tour-arrow"></div>
+  <div class="tour-tooltip-title" id="tour-title"></div>
+  <div class="tour-tooltip-text" id="tour-text"></div>
+  <div class="tour-progress" id="tour-progress"></div>
+  <div class="tour-actions">
+    <div class="tour-actions-left">
+      <button class="btn btn-ghost btn-xs" onclick="tourStop()">Пропустить</button>
+    </div>
+    <div class="tour-actions-right">
+      <button class="btn btn-ghost btn-xs" id="tour-prev-btn" onclick="tourPrev()">&#8592; Назад</button>
+      <button class="btn btn-primary btn-xs" id="tour-next-btn" onclick="tourNext()">Далее &#8594;</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -757,6 +1218,7 @@ let filteredRows = [];       // current filtered+sorted view (indices or rows)
 let filteredMaskedRows = []; // parallel masked rows for filtered view
 let filteredIndices = [];    // original row indices for filtered view (for agent send)
 let displayCols = [];        // column descriptors
+let showOriginals = false;   // show original value columns alongside masked
 let vsRowHeight = 30;        // estimated row height in px
 let vsVisibleCount = 50;     // rows to render
 let vsScrollTop = 0;
@@ -898,10 +1360,35 @@ function render(s) {
   // Task
   document.getElementById("task-text").textContent = s.task || "Ожидаю задачу от контроллера";
 
-  // Query state badge
+  // Query state badge + elapsed timer
   const qs = document.getElementById("query-state");
   qs.className = "state-badge sb-" + s.query_state;
-  qs.querySelector(".state-label").textContent = s.query_state_text;
+  if (s.query_state === "running") {
+    if (!window._queryStartTime) window._queryStartTime = Date.now();
+    if (!window._elapsedTimer) {
+      window._elapsedTimer = setInterval(function() {
+        const elapsed = Math.round((Date.now() - window._queryStartTime) / 1000);
+        const label = qs.querySelector(".state-label");
+        if (label) label.textContent = s.query_state_text + " (" + elapsed + "с)";
+      }, 1000);
+    }
+  } else {
+    if (window._elapsedTimer) {
+      clearInterval(window._elapsedTimer);
+      window._elapsedTimer = null;
+    }
+    if (window._queryStartTime) {
+      const totalSec = Math.round((Date.now() - window._queryStartTime) / 1000);
+      window._queryStartTime = null;
+      if (totalSec > 0 && s.query_state === "done") {
+        qs.querySelector(".state-label").textContent = s.query_state_text + " (" + totalSec + "с)";
+      } else {
+        qs.querySelector(".state-label").textContent = s.query_state_text;
+      }
+    } else {
+      qs.querySelector(".state-label").textContent = s.query_state_text;
+    }
+  }
 
   // Cancel button visibility & query buttons enabled state
   const isCodeMode2 = !!(s.code_mode);
@@ -959,23 +1446,23 @@ function render(s) {
 
   // Show/hide code mode buttons
   const isCodeMode = !!(s.code_mode);
+  const hasPendingCode = isCodeMode && !!s.pending_code;
   document.getElementById("btn-approve-code").style.display = isCodeMode ? "" : "none";
-  document.getElementById("btn-reject-code").style.display = isCodeMode ? "" : "none";
+  document.getElementById("btn-reject-code").style.display = hasPendingCode ? "" : "none";
   document.getElementById("btn-query-masked").style.display = isCodeMode ? "none" : "";
-  // Highlight active mode button
+  // Highlight active mode toggle
   const mqBtn = document.getElementById("mode-query-btn");
   const mcBtn = document.getElementById("mode-code-btn");
-  mqBtn.style.background = isCodeMode ? "" : "var(--accent)";
-  mqBtn.style.color = isCodeMode ? "" : "#fff";
-  mcBtn.style.background = isCodeMode ? "var(--accent)" : "";
-  mcBtn.style.color = isCodeMode ? "#fff" : "";
+  mqBtn.classList.toggle("active", !isCodeMode);
+  mcBtn.classList.toggle("active", isCodeMode);
 
   // Auto-switch tab only when a new query/code result arrives (query_version changed)
+  // Never switch away from MCP (raw) or Settings tabs — user stays where they are
   const newQV = s.query_version || 0;
   if (s.active_tab && newQV !== _lastTabSwitchQV) {
     const currentPanel = document.querySelector(".tab-panel.active");
     const currentTab = currentPanel ? currentPanel.id.replace("tab-", "") : "";
-    if (currentTab !== s.active_tab && currentTab !== "settings") {
+    if (currentTab !== s.active_tab && currentTab !== "settings" && currentTab !== "raw") {
       showTab(s.active_tab);
     }
     _lastTabSwitchQV = newQV;
@@ -1108,7 +1595,14 @@ function updateApproveBtn() {
   if (!approveBtn) return;
   const autoSendOn = !!(appState && appState.auto_send_to_agent);
   const hasResultData = resultRows.length > 0;
-  approveBtn.style.visibility = (hasResultData && !autoSendOn) ? "visible" : "hidden";
+  const shouldShow = hasResultData && !autoSendOn;
+  const wasHidden = approveBtn.style.visibility === "hidden";
+  approveBtn.style.visibility = shouldShow ? "visible" : "hidden";
+  // Notify when approval is newly needed
+  if (shouldShow && wasHidden) {
+    playBeep();
+    desktopNotify("1C Trusted Gateway", "Данные готовы — ожидается одобрение");
+  }
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────
@@ -1278,7 +1772,7 @@ function applyResultView() {
   filteredMaskedRows = indices.map(i => maskedRows[i] || null);
 
   const table = document.getElementById("result-table");
-  const thead = table.querySelector("thead tr");
+  const thead = table.querySelector("thead");
   const ph = document.getElementById("result-placeholder");
   const wrap = document.getElementById("result-table-wrap");
   const rc = document.getElementById("row-count");
@@ -1291,36 +1785,47 @@ function applyResultView() {
     return;
   }
 
-  // Build interleaved column list: for masked columns insert alias column right after real one
+  // Single column set: agent view as primary, original in tooltip for masked columns
   const hasMasked = maskedRows.length > 0 && maskedColumns.length > 0;
-  displayCols = [];  // {header, isMasked, srcHeader}
+  displayCols = [];  // {header, isMasked, srcHeader, isOriginal}
   resultHeaders.forEach(h => {
-    displayCols.push({ header: h, isMasked: false, srcHeader: h });
-    if (hasMasked && maskedColumns.includes(h)) {
-      displayCols.push({ header: h + " (шифр)", isMasked: true, srcHeader: h });
+    const masked = hasMasked && maskedColumns.includes(h);
+    displayCols.push({ header: h, isMasked: masked, srcHeader: h, isOriginal: false });
+    if (masked && showOriginals) {
+      displayCols.push({ header: h + " ↩", isMasked: false, srcHeader: h, isOriginal: true });
     }
   });
 
+  // Show/hide originals toggle button
+  const togBtn = document.getElementById("toggle-originals-btn");
+  if (togBtn) {
+    togBtn.style.display = hasMasked ? "" : "none";
+    togBtn.style.background = showOriginals ? "var(--accent)" : "";
+    togBtn.style.color = showOriginals ? "#fff" : "";
+  }
+
   thead.innerHTML = "";
+  const headerRow = document.createElement("tr");
   displayCols.forEach(col => {
     const th = document.createElement("th");
     th.textContent = col.header;
-    if (col.isMasked) {
-      th.classList.add("col-cipher");
-    } else if (hasMasked && maskedColumns.includes(col.header)) {
+    if (col.isOriginal) {
+      th.classList.add("col-original");
+    } else if (col.isMasked) {
       th.classList.add("col-masked");
     } else if (hasMasked) {
       th.classList.add("col-open");
     }
-    if (col.header === sortColumn) {
+    if (!col.isOriginal && col.header === sortColumn) {
       const arrow = document.createElement("span");
       arrow.className = "sort-arrow";
       arrow.textContent = sortReverse ? " \u2193" : " \u2191";
       th.appendChild(arrow);
     }
-    if (!col.isMasked) th.onclick = () => toggleSort(col.header);
-    thead.appendChild(th);
+    if (!col.isOriginal) th.onclick = () => toggleSort(col.header);
+    headerRow.appendChild(th);
   });
+  thead.appendChild(headerRow);
 
   if (!filteredRows.length) {
     wrap.style.display = "none";
@@ -1339,6 +1844,7 @@ function applyResultView() {
   wrap.scrollTop = 0;
   vsScrollTop = 0;
   renderVisibleRows();
+  applyTableFontSize();
 }
 
 // ─── Virtual Scroll ──────────────────────────────────────────────────
@@ -1372,8 +1878,13 @@ function renderVisibleRows() {
   // Top spacer row
   if (startIdx > 0) {
     const topSpacer = document.createElement("tr");
-    topSpacer.style.height = (startIdx * vsRowHeight) + "px";
     topSpacer.className = "vs-spacer";
+    const topTd = document.createElement("td");
+    topTd.colSpan = displayCols.length;
+    topTd.style.height = (startIdx * vsRowHeight) + "px";
+    topTd.style.padding = "0";
+    topTd.style.border = "none";
+    topSpacer.appendChild(topTd);
     fragment.appendChild(topSpacer);
   }
 
@@ -1387,14 +1898,22 @@ function renderVisibleRows() {
       const col = displayCols[ci];
       const td = document.createElement("td");
       let v;
-      if (col.isMasked) {
-        v = maskedRow ? toText(maskedRow[col.srcHeader]) : "";
-        td.classList.add("masked-col");
+      if (col.isOriginal) {
+        // Original (unmasked) value column
+        v = toText(row[col.srcHeader]);
+        td.title = v;
+        td.classList.add("cell-original");
+      } else if (col.isMasked && maskedRow) {
+        // Show masked (agent) value; tooltip shows original
+        v = toText(maskedRow[col.srcHeader]);
+        const orig = toText(row[col.srcHeader]);
+        td.title = orig;
+        td.classList.add("cell-masked-value");
       } else {
         v = toText(row[col.srcHeader]);
+        td.title = v;
       }
       td.textContent = v;
-      td.title = v;
       td.dataset.r = ri;
       td.dataset.c = ci;
       td.onmousedown = (e) => cellMouseDown(e, ri, ci);
@@ -1408,8 +1927,13 @@ function renderVisibleRows() {
   const bottomH = (totalRows - endIdx) * vsRowHeight;
   if (bottomH > 0) {
     const bottomSpacer = document.createElement("tr");
-    bottomSpacer.style.height = bottomH + "px";
     bottomSpacer.className = "vs-spacer";
+    const bottomTd = document.createElement("td");
+    bottomTd.colSpan = displayCols.length;
+    bottomTd.style.height = bottomH + "px";
+    bottomTd.style.padding = "0";
+    bottomTd.style.border = "none";
+    bottomSpacer.appendChild(bottomTd);
     fragment.appendChild(bottomSpacer);
   }
 
@@ -1451,6 +1975,11 @@ function showPlaceholder(text, isError) {
 function toggleSort(col) {
   if (sortColumn === col) sortReverse = !sortReverse;
   else { sortColumn = col; sortReverse = false; }
+  applyResultView();
+}
+
+function toggleOriginals() {
+  showOriginals = !showOriginals;
   applyResultView();
 }
 
@@ -1516,6 +2045,64 @@ function paintCellSelection() {
   });
 }
 
+// ─── Context menu on table ─────────────────────────────────────────
+(function() {
+  const menu = document.getElementById("table-ctx-menu");
+  let ctxCol = null, ctxRow = null, ctxValue = "";
+
+  document.getElementById("result-table-wrap").addEventListener("contextmenu", function(e) {
+    const td = e.target.closest("td");
+    if (!td) return;
+    e.preventDefault();
+    ctxCol = parseInt(td.dataset.c);
+    ctxRow = parseInt(td.dataset.r);
+    ctxValue = td.textContent || "";
+
+    // Position menu
+    const x = Math.min(e.clientX, window.innerWidth - 200);
+    const y = Math.min(e.clientY, window.innerHeight - 200);
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+    menu.style.display = "block";
+  });
+
+  menu.addEventListener("click", function(e) {
+    const item = e.target.closest(".ctx-item");
+    if (!item) return;
+    const action = item.dataset.action;
+    menu.style.display = "none";
+
+    if (action === "copy-value") {
+      navigator.clipboard.writeText(ctxValue).then(() => toast("Скопировано"));
+    } else if (action === "copy-column") {
+      if (ctxCol == null || !resultHeaders[ctxCol]) return;
+      const hdr = resultHeaders[ctxCol];
+      const rows = filteredRows.length ? filteredRows : resultRows;
+      const vals = rows.map(r => toText(r[hdr]));
+      navigator.clipboard.writeText(vals.join("\n")).then(() => toast("Столбец скопирован (" + vals.length + " значений)"));
+    } else if (action === "filter-value") {
+      const input = document.getElementById("result-filter");
+      if (input) { input.value = ctxValue; onSearchInput(); }
+    } else if (action === "allow-column" || action === "mask-column") {
+      if (ctxCol == null || !resultHeaders[ctxCol]) return;
+      const hdr = resultHeaders[ctxCol];
+      if (action === "allow-column" && typeof allowField === "function") {
+        allowField(hdr);
+      } else if (action === "mask-column" && typeof reMaskField === "function") {
+        reMaskField(hdr);
+      }
+    }
+  });
+
+  // Close on click outside or Escape
+  document.addEventListener("click", function(e) {
+    if (!menu.contains(e.target)) menu.style.display = "none";
+  });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") menu.style.display = "none";
+  });
+})();
+
 // Ctrl+C / Cmd+C on table (e.code works regardless of keyboard layout)
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && (e.code === "KeyC" || e.key === "c" || e.key === "с")) {
@@ -1566,8 +2153,8 @@ function copyCellSelection() {
     const vals = [];
     for (let ci = cellRange.c1; ci <= cellRange.c2 && ci < displayCols.length; ci++) {
       const col = displayCols[ci];
-      if (col.isMasked) {
-        vals.push(maskedRow ? toText(maskedRow[col.srcHeader]) : "");
+      if (col.isMasked && maskedRow) {
+        vals.push(toText(maskedRow[col.srcHeader]));
       } else {
         vals.push(toText(row[col.srcHeader]));
       }
@@ -1590,6 +2177,28 @@ function copyAllRows() {
   navigator.clipboard.writeText(lines.join("\n")).then(() => toast("Скопировано " + rows.length + suffix));
 }
 
+function exportCSV() {
+  const rows = filteredRows.length ? filteredRows : resultRows;
+  if (!rows.length) { toast("Нет данных для экспорта"); return; }
+  const escape = v => {
+    const s = String(v == null ? "" : v);
+    return s.indexOf(",") >= 0 || s.indexOf('"') >= 0 || s.indexOf("\n") >= 0
+      ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [resultHeaders.map(escape).join(",")];
+  rows.forEach(row => lines.push(resultHeaders.map(h => escape(toText(row[h]))).join(",")));
+  const csv = "\uFEFF" + lines.join("\r\n"); // BOM for Excel
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const now = new Date();
+  const ts = now.toISOString().slice(0,10);
+  a.href = url;
+  a.download = "gateway-export-" + ts + ".csv";
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("CSV экспортирован (" + rows.length + " строк)");
+}
 
 function renderMarkdownPanel(id, text) {
   const el = document.getElementById(id);
@@ -1817,8 +2426,10 @@ async function allowField(fieldName) {
       force_mask_fields: mergedForceMask(),
       allow_plain_fields: mergedAllowPlain()
     });
-    if (r.ok) toast(fieldName + " открыто.");
-    else toast(r.error || "Перезапустите запрос.");
+    if (r.ok) {
+      toast("\u2705 " + fieldName + " добавлено в белый список");
+      flashTag(fieldName, "open");
+    } else toast(r.error || "Перезапустите запрос.");
     updateAllowPlainHighlight();
   } catch (e) {
     toast("Ошибка: " + e.message);
@@ -1833,12 +2444,28 @@ async function reMaskField(fieldName) {
       force_mask_fields: mergedForceMask(),
       allow_plain_fields: mergedAllowPlain()
     });
-    if (r.ok) toast(fieldName + " зашифровано.");
-    else toast(r.error || "Ошибка ремаскировки");
+    if (r.ok) {
+      toast("\u{1f512} " + fieldName + " зашифровано");
+      flashTag(fieldName, "mask");
+    } else toast(r.error || "Ошибка ремаскировки");
     updateAllowPlainHighlight();
   } catch (e) {
     toast("Ошибка: " + e.message);
   }
+}
+
+function flashTag(fieldName, type) {
+  // Find tag elements containing this field name in mask-bar
+  const tags = document.querySelectorAll("#mask-bar .unmasked-tag, #mask-bar .masked-col-tag, #mask-bar .excluded-col-tag");
+  const cls = type === "open" ? "tag-flash-open" : "tag-flash-mask";
+  tags.forEach(tag => {
+    if (tag.textContent.trim().replace(/\s*\u00d7$/, "") === fieldName) {
+      tag.classList.remove("tag-flash-open", "tag-flash-mask");
+      void tag.offsetWidth; // force reflow
+      tag.classList.add(cls);
+      tag.addEventListener("animationend", () => tag.classList.remove(cls), { once: true });
+    }
+  });
 }
 
 async function doApproveSend() {
@@ -1858,7 +2485,7 @@ async function doApproveCode() {
   if (!code) { toast("Введите код для выполнения"); return; }
   try {
     const r = await api("/api/execute_code", { task: "Выполнение кода из UI", code: code });
-    if (r.ok) toast("Код выполнен.");
+    if (r.ok) { toast("Код выполнен."); saveToHistory(code, 0, "code"); }
     else toast(r.error || r.message || "Ошибка выполнения");
   } catch (e) { toast("Ошибка: " + e.message); }
 }
@@ -1962,6 +2589,9 @@ async function doQuery(mode) {
     }, 310000);
     if (r.ok) {
       toast("Запрос выполнен (" + mode + ")");
+      // Save to history
+      const rowCount = (appState.rows && appState.rows.length) || 0;
+      saveToHistory(queryText, rowCount);
     } else {
       toast("Ошибка: " + (r.message || r.error || "?").substring(0, 150));
     }
@@ -2114,6 +2744,142 @@ function format1CQuery(src) {
   return result;
 }
 
+// ─── Settings Sub-Tabs ──────────────────────────────────────────────
+
+function showSettingsSub(name, btn) {
+  document.querySelectorAll(".settings-subpanel").forEach(p => p.classList.remove("active"));
+  const panel = document.getElementById("settings-sub-" + name);
+  if (panel) panel.classList.add("active");
+  document.querySelectorAll(".settings-subtab").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  if (name === "fields") ftRenderTable();
+}
+
+// ─── Fields Table ───────────────────────────────────────────────────
+
+let ftSortCol = "name";
+let ftSortAsc = true;
+
+function ftGetFields() {
+  const allowStr = document.getElementById("s-allow-plain").value.trim();
+  const forceStr = document.getElementById("s-force-mask").value.trim();
+  const fields = [];
+  if (allowStr) {
+    allowStr.split(",").map(s => s.trim()).filter(Boolean).forEach(name => {
+      fields.push({ name, type: "allow" });
+    });
+  }
+  if (forceStr) {
+    forceStr.split(",").map(s => s.trim()).filter(Boolean).forEach(name => {
+      fields.push({ name, type: "force" });
+    });
+  }
+  return fields;
+}
+
+function ftSetFields(fields) {
+  const allow = fields.filter(f => f.type === "allow").map(f => f.name);
+  const force = fields.filter(f => f.type === "force").map(f => f.name);
+  document.getElementById("s-allow-plain").value = allow.join(", ");
+  document.getElementById("s-force-mask").value = force.join(", ");
+}
+
+function ftRenderTable() {
+  let fields = ftGetFields();
+  const filter = (document.getElementById("ft-filter").value || "").trim().toLowerCase();
+  if (filter) {
+    fields = fields.filter(f => f.name.toLowerCase().includes(filter));
+  }
+
+  // Sort
+  fields.sort((a, b) => {
+    let cmp = 0;
+    if (ftSortCol === "name") cmp = a.name.localeCompare(b.name, "ru");
+    else cmp = a.type.localeCompare(b.type);
+    return ftSortAsc ? cmp : -cmp;
+  });
+
+  // Sort arrows
+  document.getElementById("ft-sort-name").textContent = ftSortCol === "name" ? (ftSortAsc ? "\u25B2" : "\u25BC") : "";
+  document.getElementById("ft-sort-type").textContent = ftSortCol === "type" ? (ftSortAsc ? "\u25B2" : "\u25BC") : "";
+
+  const tbody = document.getElementById("ft-body");
+  const emptyEl = document.getElementById("ft-empty");
+
+  if (!fields.length) {
+    tbody.innerHTML = "";
+    emptyEl.style.display = "";
+    return;
+  }
+  emptyEl.style.display = "none";
+
+  let html = "";
+  fields.forEach(f => {
+    const typeCls = f.type === "allow" ? "ft-type-allow" : "ft-type-force";
+    const typeLabel = f.type === "allow" ? "Разрешено" : "Шифровать";
+    const toggleLabel = f.type === "allow" ? "Шифровать" : "Разрешить";
+    html += '<tr>' +
+      '<td>' + escapeHtml(f.name) + '</td>' +
+      '<td class="ft-actions">' +
+        '<span class="ft-type ' + typeCls + '" style="cursor:pointer" onclick="ftToggle(\'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Нажмите для переключения">' + typeLabel + '</span>' +
+        ' <button class="ft-del" onclick="ftRemove(\'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Удалить">\u00D7</button>' +
+      '</td>' +
+      '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function ftSort(col) {
+  if (ftSortCol === col) ftSortAsc = !ftSortAsc;
+  else { ftSortCol = col; ftSortAsc = true; }
+  ftRenderTable();
+}
+
+function ftAddField() {
+  const input = document.getElementById("ft-new-field");
+  const name = input.value.trim();
+  if (!name) return;
+  const fields = ftGetFields();
+  // Remove if exists, re-add as allow
+  const filtered = fields.filter(f => f.name.toLowerCase() !== name.toLowerCase());
+  filtered.push({ name, type: "allow" });
+  ftSetFields(filtered);
+  ftRenderTable();
+  input.value = "";
+  toast("\u2705 " + name + " добавлено в белый список");
+}
+
+function ftAddFieldForce() {
+  const input = document.getElementById("ft-new-field");
+  const name = input.value.trim();
+  if (!name) return;
+  const fields = ftGetFields();
+  const filtered = fields.filter(f => f.name.toLowerCase() !== name.toLowerCase());
+  filtered.push({ name, type: "force" });
+  ftSetFields(filtered);
+  ftRenderTable();
+  input.value = "";
+  toast("\uD83D\uDD12 " + name + " добавлено в принудительное шифрование");
+}
+
+function ftRemove(name) {
+  const fields = ftGetFields().filter(f => f.name !== name);
+  ftSetFields(fields);
+  ftRenderTable();
+  toast(name + " удалено");
+}
+
+function ftToggle(name) {
+  const fields = ftGetFields();
+  const idx = fields.findIndex(f => f.name === name);
+  if (idx === -1) return;
+  fields[idx].type = fields[idx].type === "allow" ? "force" : "allow";
+  ftSetFields(fields);
+  ftRenderTable();
+  const label = fields[idx].type === "allow" ? "разрешено" : "шифруется";
+  toast(name + " \u2192 " + label);
+}
+
 // ─── Toast ───────────────────────────────────────────────────────────
 
 let toastTimer;
@@ -2124,6 +2890,62 @@ function toast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), 2500);
 }
+
+// ─── Draggable Splitter ────────────────────────────────────────────────
+
+(function initSplitter() {
+  const splitter = document.getElementById("pane-splitter");
+  const editorPane = document.getElementById("editor-pane");
+  const container = document.getElementById("mcp-split");
+  if (!splitter || !editorPane || !container) return;
+
+  // Restore saved ratio
+  const saved = localStorage.getItem("splitter_ratio");
+  if (saved) {
+    const ratio = parseFloat(saved);
+    if (ratio > 0.1 && ratio < 0.9) {
+      editorPane.style.flex = "0 0 " + (ratio * 100) + "%";
+      editorPane.style.maxWidth = "60%";
+    }
+  }
+
+  let startX, startWidth, containerWidth;
+
+  splitter.addEventListener("mousedown", function(e) {
+    e.preventDefault();
+    startX = e.clientX;
+    startWidth = editorPane.getBoundingClientRect().width;
+    containerWidth = container.getBoundingClientRect().width;
+    splitter.classList.add("dragging");
+    document.body.classList.add("splitter-dragging");
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+
+  function onMouseMove(e) {
+    const dx = e.clientX - startX;
+    let newWidth = startWidth + dx;
+    const minW = 200;
+    const maxW = containerWidth - 200 - 6; // 6 = splitter width
+    newWidth = Math.max(minW, Math.min(maxW, newWidth));
+    const ratio = newWidth / containerWidth;
+    editorPane.style.flex = "0 0 " + newWidth + "px";
+    editorPane.style.maxWidth = newWidth + "px";
+    // Resize Ace editor
+    if (window.queryEditor && window.queryEditor.ace) window.queryEditor.ace.resize();
+  }
+
+  function onMouseUp(e) {
+    splitter.classList.remove("dragging");
+    document.body.classList.remove("splitter-dragging");
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    // Save ratio
+    const ratio = editorPane.getBoundingClientRect().width / container.getBoundingClientRect().width;
+    localStorage.setItem("splitter_ratio", ratio.toFixed(3));
+    if (window.queryEditor && window.queryEditor.ace) window.queryEditor.ace.resize();
+  }
+})();
 
 // ─── Settings ────────────────────────────────────────────────────────
 
@@ -2139,9 +2961,12 @@ async function loadSettingsForm() {
     document.getElementById("s-preview-chars").value = s.defaults_preview_chars || 4000;
     document.getElementById("s-auto-send").checked = !!s.defaults_auto_send;
     document.getElementById("s-skip-numeric").checked = !!s.defaults_skip_numeric;
+    document.getElementById("s-sound-notify").checked = localStorage.getItem("sound_notifications") === "true";
     document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
     document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
     document.getElementById("s-keywords-hint").textContent = s.allow_plain_keywords || "";
+    // Refresh fields table if visible
+    if (document.getElementById("settings-sub-fields").classList.contains("active")) ftRenderTable();
   } catch (e) { toast("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a: " + e.message); }
 }
 
@@ -2156,6 +2981,8 @@ async function saveSettings() {
     defaults_force_mask_fields: document.getElementById("s-force-mask").value.trim(),
   };
   try {
+    // Save client-only settings to localStorage
+    localStorage.setItem("sound_notifications", document.getElementById("s-sound-notify").checked ? "true" : "false");
     const r = await api("/api/settings", payload);
     if (r.ok) {
       toast("\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b \u0438 \u0437\u0430\u0448\u0438\u0444\u0440\u043e\u0432\u0430\u043d\u044b");
@@ -2314,13 +3141,665 @@ document.addEventListener("click", function reqNotifPerm() {
   document.removeEventListener("click", reqNotifPerm);
 }, { once: true });
 
+// ─── Query History ──────────────────────────────────────────────────
+
+const HISTORY_KEY = "query_history";
+const HISTORY_MAX = 50;
+
+function getHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+  } catch(e) { return []; }
+}
+
+function saveToHistory(query, rowCount, kind) {
+  kind = kind || "query";
+  const history = getHistory();
+  // Avoid duplicate of last entry of same kind
+  if (history.length && history[0].query === query && (history[0].kind || "query") === kind) {
+    history[0].ts = Date.now();
+    history[0].rows = rowCount;
+  } else {
+    history.unshift({ query, ts: Date.now(), rows: rowCount || 0, kind });
+  }
+  if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(e) {}
+}
+
+function currentHistoryKind() {
+  return appState.code_mode ? "code" : "query";
+}
+
+function toggleHistory() {
+  const dd = document.getElementById("history-dropdown");
+  if (dd.style.display !== "none") { dd.style.display = "none"; return; }
+  renderHistory();
+  dd.style.display = "";
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener("click", closeHistoryOnOutside, { once: true });
+  }, 0);
+}
+
+function closeHistoryOnOutside(e) {
+  const dd = document.getElementById("history-dropdown");
+  if (dd && !dd.parentElement.contains(e.target)) {
+    dd.style.display = "none";
+  } else if (dd && dd.style.display !== "none") {
+    setTimeout(() => document.addEventListener("click", closeHistoryOnOutside, { once: true }), 0);
+  }
+}
+
+function renderHistory() {
+  const dd = document.getElementById("history-dropdown");
+  const history = getHistory();
+  if (!history.length) {
+    dd.innerHTML = '<div class="history-empty">История пуста</div>';
+    return;
+  }
+  let html = "";
+  history.forEach((item, i) => {
+    const d = new Date(item.ts);
+    const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " +
+                    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    const rows = item.rows ? item.rows + " стр." : "";
+    const tooltip = escapeHtml(item.query).replace(/\n/g, "&#10;");
+    const label = item.name
+      ? escapeHtml(item.name)
+      : escapeHtml(item.query.length > 60 ? item.query.substring(0, 60) + "..." : item.query);
+    const labelCls = item.name ? "history-name" : "history-query";
+    html += '<div class="history-item" title="' + tooltip + '" onclick="historySelect(' + i + ')">' +
+            '<span class="' + labelCls + '">' + label + '</span>' +
+            '<span class="history-meta">' + rows + (rows ? ' · ' : '') + dateStr +
+            ' <span class="history-del history-name-edit" onclick="event.stopPropagation();historyRename(' + i + ')" title="Переименовать">&#9998;</span>' +
+            '</span>' +
+            '</div>';
+  });
+  html += '<div class="history-footer"><button class="btn btn-ghost btn-xs" onclick="clearHistory()">Очистить историю</button></div>';
+  dd.innerHTML = html;
+}
+
+function historySelect(idx) {
+  const history = getHistory();
+  if (!history[idx]) return;
+  if (window.queryEditor && window.queryEditor.ace) {
+    window.queryEditor.ace.setValue(history[idx].query, -1);
+    window.queryEditor.ace.clearSelection();
+  }
+  document.getElementById("history-dropdown").style.display = "none";
+}
+
+function historyRename(idx) {
+  const history = getHistory();
+  if (!history[idx]) return;
+  const kind = history[idx].kind || "query";
+  const current = history[idx].name || "";
+  const name = prompt("Имя " + (kind === "code" ? "кода" : "запроса") + ":", current);
+  if (name === null) return;
+  history[idx].name = name.trim() || undefined;
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(e) {}
+  renderHistory();
+}
+
+function historyDelete(idx) {
+  const history = getHistory();
+  if (!history[idx]) return;
+  history.splice(idx, 1);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(e) {}
+  renderHistory();
+}
+
+function clearHistory() {
+  const kind = currentHistoryKind();
+  const history = getHistory().filter(h => (h.kind || "query") !== kind);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(e) {}
+  document.getElementById("history-dropdown").style.display = "none";
+  toast("История " + (kind === "code" ? "кода" : "запросов") + " очищена");
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ─── Saved Queries (Bookmarks) ──────────────────────────────────────
+
+const SAVED_KEY = "saved_queries";
+
+function getSavedQueries() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY)) || []; } catch(e) { return []; }
+}
+
+function saveCurrentQuery() {
+  if (!window.queryEditor) return;
+  const q = window.queryEditor.ace ? window.queryEditor.ace.getValue() : window.queryEditor.state.doc.toString();
+  if (!q.trim()) { toast("Нечего сохранять"); return; }
+  const kind = currentHistoryKind();
+  const label = kind === "code" ? "кода" : "запроса";
+  const name = prompt("Название " + label + ":", q.substring(0, 40).replace(/\n/g, " "));
+  if (!name) return;
+  const saved = getSavedQueries();
+  saved.unshift({ name, query: q, ts: Date.now(), kind });
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(saved)); } catch(e) {}
+  toast((kind === "code" ? "Код" : "Запрос") + " сохранён: " + name);
+}
+
+function deleteSavedQuery(idx, e) {
+  e.stopPropagation();
+  const saved = getSavedQueries();
+  saved.splice(idx, 1);
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(saved)); } catch(e2) {}
+  renderHistory();
+}
+
+function savedSelect(idx) {
+  const saved = getSavedQueries();
+  if (!saved[idx]) return;
+  if (window.queryEditor && window.queryEditor.ace) {
+    window.queryEditor.ace.setValue(saved[idx].query, -1);
+    window.queryEditor.ace.clearSelection();
+  }
+  document.getElementById("history-dropdown").style.display = "none";
+}
+
+// Override renderHistory to include saved queries section and filter by kind
+const _origRenderHistory = renderHistory;
+renderHistory = function() {
+  const dd = document.getElementById("history-dropdown");
+  const kind = currentHistoryKind();
+  const kindLabel = kind === "code" ? "кода" : "запросов";
+  const allSaved = getSavedQueries();
+  const allHistory = getHistory();
+  const saved = allSaved.filter(s => (s.kind || "query") === kind);
+  const history = allHistory.filter(h => (h.kind || "query") === kind);
+
+  if (!saved.length && !history.length) {
+    dd.innerHTML = '<div class="history-empty">История ' + kindLabel + ' пуста</div>';
+    return;
+  }
+
+  let html = "";
+
+  // Saved section
+  if (saved.length) {
+    html += '<div class="history-section-title">&#11088; Сохранённые</div>';
+    saved.forEach((item) => {
+      const realIdx = allSaved.indexOf(item);
+      const tooltip = escapeHtml(item.query).replace(/\n/g, "&#10;");
+      html += '<div class="history-item" title="' + tooltip + '" onclick="savedSelect(' + realIdx + ')">' +
+              '<span class="history-name">' + escapeHtml(item.name) + '</span>' +
+              '<span class="history-meta">' +
+              '<span class="history-del" onclick="deleteSavedQuery(' + realIdx + ', event)" title="Удалить">&#10005;</span></span>' +
+              '</div>';
+    });
+  }
+
+  // Recent history section
+  if (history.length) {
+    if (saved.length) html += '<div class="history-section-title">&#128337; Недавние</div>';
+    history.forEach((item) => {
+      const realIdx = allHistory.indexOf(item);
+      const d = new Date(item.ts);
+      const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " +
+                      d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      const rows = item.rows ? item.rows + " стр." : "";
+      const tooltip = escapeHtml(item.query).replace(/\n/g, "&#10;");
+      const label = item.name
+        ? escapeHtml(item.name)
+        : escapeHtml(item.query.length > 60 ? item.query.substring(0, 60) + "..." : item.query);
+      const labelCls = item.name ? "history-name" : "history-query";
+      html += '<div class="history-item" title="' + tooltip + '" onclick="historySelect(' + realIdx + ')">' +
+              '<span class="' + labelCls + '">' + label + '</span>' +
+              '<span class="history-meta">' + rows + (rows ? ' · ' : '') + dateStr +
+              ' <span class="history-del history-name-edit" onclick="event.stopPropagation();historyRename(' + realIdx + ')" title="Переименовать">&#9998;</span>' +
+              '<span class="history-del" onclick="event.stopPropagation();historyDelete(' + realIdx + ')" title="Удалить">&#10005;</span>' +
+              '</span>' +
+              '</div>';
+    });
+  }
+
+  html += '<div class="history-footer"><button class="btn btn-ghost btn-xs" onclick="clearHistory()">Очистить историю ' + kindLabel + '</button></div>';
+  dd.innerHTML = html;
+};
+
+// ─── Theme Toggle ───────────────────────────────────────────────────
+
+function toggleTheme() {
+  const isDark = document.body.classList.contains("theme-dark");
+  setTheme(isDark ? "light" : "dark");
+}
+
+// ─── Table Font Scaling ─────────────────────────────────────────────
+
+let tableFontSize = parseInt(localStorage.getItem("table_font_size")) || 12;
+
+function applyTableFontSize() {
+  const tbl = document.getElementById("result-table");
+  if (tbl) tbl.style.fontSize = tableFontSize + "px";
+}
+
+function scaleTable(delta) {
+  tableFontSize = Math.max(9, Math.min(18, tableFontSize + delta));
+  try { localStorage.setItem("table_font_size", tableFontSize); } catch(e) {}
+  applyTableFontSize();
+}
+
+// Apply on load
+document.addEventListener("DOMContentLoaded", applyTableFontSize);
+
+// ─── Sound & Desktop Notifications ──────────────────────────────────
+
+function isSoundEnabled() {
+  return localStorage.getItem("sound_notifications") === "true";
+}
+
+function playBeep() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sine"; osc.frequency.value = 660;
+    gain.gain.value = 0.15;
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+    setTimeout(() => ctx.close(), 200);
+  } catch(e) {}
+}
+
+function desktopNotify(title, body) {
+  if (!isSoundEnabled()) return;
+  if ("Notification" in window && Notification.permission === "granted") {
+    try { new Notification(title, { body, icon: "" }); } catch(e) {}
+  }
+}
+
+// ─── Guided Tour ────────────────────────────────────────────────────
+
+const TOUR_STEPS = [
+  {
+    target: "#header",
+    title: "Панель подключения",
+    text: "Здесь вы указываете URL сервера шлюза и ключ доступа. Нажмите <b>Подключить</b>, чтобы установить соединение с 1С. Индикатор справа покажет статус: зеленый — подключено, красный — ошибка.",
+    position: "bottom"
+  },
+  {
+    target: "#header-send-mode",
+    title: "Режим отправки данных",
+    text: "<b>Авто</b> — результаты запросов автоматически отправляются AI-агенту.<br><b>Ручной</b> — вы сначала проверяете данные и отправляете сами. Ручной режим безопаснее при работе с конфиденциальными данными.",
+    position: "bottom"
+  },
+  {
+    target: "#toolbar",
+    title: "Навигация по вкладкам",
+    text: "<b>MCP</b> — редактор запросов и сырой ответ.<br><b>Результат</b> — таблица с данными, фильтры, поиск.<br><b>Анализ</b> — текстовый анализ от AI-агента.<br><b>Настройки</b> — параметры подключения и маскирования.",
+    position: "bottom"
+  },
+  {
+    target: "#query-editor",
+    title: "Редактор запросов",
+    text: "Введите запрос на языке 1С или BSL-код для выполнения. Редактор поддерживает подсветку синтаксиса и автодополнение.<br>Горячая клавиша: <kbd>Ctrl+Enter</kbd> — выполнить запрос.",
+    position: "right",
+    before: function() { showTab("raw"); }
+  },
+  {
+    target: "#btn-query-masked",
+    title: "Выполнение запроса",
+    text: "Нажмите для отправки запроса. Данные автоматически проходят через маскирование — персональные данные (ФИО, ИНН, телефоны) заменяются псевдонимами.",
+    position: "bottom",
+    before: function() { showTab("raw"); }
+  },
+  {
+    target: "#mask-bar",
+    title: "Управление маскированием",
+    text: "Здесь перечислены поля, которые <b>не маскируются</b> (белый список). Добавляйте поля вроде Статус, ВидДвижения, Проведен — они нужны для анализа, но не содержат персональных данных.",
+    position: "bottom"
+  },
+  {
+    target: "#tab-result",
+    title: "Таблица результатов",
+    text: "Результат запроса отображается в виде таблицы. Столбцы с цветовой индикацией: <b>открытые</b> (не маскированы), <b>зашифрованные</b> (маскированы). Используйте поиск и фильтры для анализа данных.",
+    position: "top",
+    before: function() { showTab("result"); }
+  },
+  {
+    target: "#tab-analysis",
+    title: "Анализ данных",
+    text: "Текстовый анализ от AI-агента отображается здесь в формате Markdown. Замаскированные псевдонимы будут автоматически расшифрованы шлюзом для вашего удобства.",
+    position: "top",
+    before: function() { showTab("analysis"); }
+  },
+  {
+    target: "#tab-settings",
+    title: "Настройки",
+    text: "Параметры подключения, управление полями маскирования, экспорт/импорт конфигурации. Здесь же можно настроить NER-правила для автоматического обнаружения персональных данных.",
+    position: "top",
+    before: function() { showTab("settings"); }
+  }
+];
+
+let tourCurrentStep = -1;
+let tourActive = false;
+
+function tourStart() {
+  tourCurrentStep = 0;
+  tourActive = true;
+  document.getElementById("tour-overlay").style.display = "";
+  document.getElementById("tour-spotlight").style.display = "";
+  document.getElementById("tour-tooltip").style.display = "";
+  document.getElementById("tour-overlay").onclick = function(e) {
+    if (e.target === this) tourStop();
+  };
+  tourRender();
+  try { localStorage.removeItem("tour_done"); } catch(e) {}
+}
+
+function tourStop() {
+  tourActive = false;
+  tourCurrentStep = -1;
+  document.getElementById("tour-overlay").style.display = "none";
+  document.getElementById("tour-spotlight").style.display = "none";
+  document.getElementById("tour-tooltip").style.display = "none";
+  try { localStorage.setItem("tour_done", "1"); } catch(e) {}
+  showTab("raw");
+}
+
+function tourNext() {
+  if (tourCurrentStep < TOUR_STEPS.length - 1) {
+    tourCurrentStep++;
+    tourRender();
+  } else {
+    tourStop();
+    showToast("Обучение завершено!", "success");
+  }
+}
+
+function tourPrev() {
+  if (tourCurrentStep > 0) {
+    tourCurrentStep--;
+    tourRender();
+  }
+}
+
+function tourRender() {
+  const step = TOUR_STEPS[tourCurrentStep];
+  if (!step) return;
+
+  // Execute pre-step action (e.g. switch tab)
+  if (step.before) step.before();
+
+  // Wait a tick for DOM to update after tab switch
+  requestAnimationFrame(() => {
+    const targetEl = document.querySelector(step.target);
+    if (!targetEl) { tourNext(); return; }
+
+    // Scroll target into view if needed
+    targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    requestAnimationFrame(() => {
+      const rect = targetEl.getBoundingClientRect();
+      const pad = 6;
+
+      // Position spotlight
+      const spotlight = document.getElementById("tour-spotlight");
+      spotlight.style.top = (rect.top - pad) + "px";
+      spotlight.style.left = (rect.left - pad) + "px";
+      spotlight.style.width = (rect.width + pad * 2) + "px";
+      spotlight.style.height = (rect.height + pad * 2) + "px";
+
+      // Fill tooltip content
+      document.getElementById("tour-title").innerHTML = step.title;
+      document.getElementById("tour-text").innerHTML = step.text;
+
+      // Progress dots
+      const progressEl = document.getElementById("tour-progress");
+      let dotsHtml = "";
+      for (let i = 0; i < TOUR_STEPS.length; i++) {
+        const cls = i < tourCurrentStep ? "done" : i === tourCurrentStep ? "active" : "";
+        dotsHtml += '<div class="tour-dot ' + cls + '"></div>';
+      }
+      dotsHtml += '<span class="tour-counter">' + (tourCurrentStep + 1) + ' / ' + TOUR_STEPS.length + '</span>';
+      progressEl.innerHTML = dotsHtml;
+
+      // Prev/Next buttons
+      document.getElementById("tour-prev-btn").style.display = tourCurrentStep === 0 ? "none" : "";
+      const nextBtn = document.getElementById("tour-next-btn");
+      nextBtn.textContent = tourCurrentStep === TOUR_STEPS.length - 1 ? "Готово \u2713" : "Далее \u2192";
+
+      // Position tooltip
+      tourPositionTooltip(rect, step.position || "bottom");
+    });
+  });
+}
+
+function tourPositionTooltip(targetRect, preferred) {
+  const tooltip = document.getElementById("tour-tooltip");
+  const arrow = document.getElementById("tour-arrow");
+  const gap = 14;
+
+  // Reset to measure
+  tooltip.style.top = "0px";
+  tooltip.style.left = "0px";
+  const tRect = tooltip.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let top, left, pos = preferred;
+
+  // Try preferred position, fall back if out of viewport
+  if (pos === "bottom") {
+    top = targetRect.bottom + gap;
+    left = targetRect.left + targetRect.width / 2 - tRect.width / 2;
+    if (top + tRect.height > vh - 10) pos = "top";
+  }
+  if (pos === "top") {
+    top = targetRect.top - gap - tRect.height;
+    left = targetRect.left + targetRect.width / 2 - tRect.width / 2;
+    if (top < 10) pos = "bottom";
+  }
+  if (pos === "right") {
+    top = targetRect.top + targetRect.height / 2 - tRect.height / 2;
+    left = targetRect.right + gap;
+    if (left + tRect.width > vw - 10) pos = "left";
+  }
+  if (pos === "left") {
+    top = targetRect.top + targetRect.height / 2 - tRect.height / 2;
+    left = targetRect.left - gap - tRect.width;
+    if (left < 10) pos = "right";
+  }
+
+  // Final calculation based on resolved position
+  switch (pos) {
+    case "bottom":
+      top = targetRect.bottom + gap;
+      left = targetRect.left + targetRect.width / 2 - tRect.width / 2;
+      break;
+    case "top":
+      top = targetRect.top - gap - tRect.height;
+      left = targetRect.left + targetRect.width / 2 - tRect.width / 2;
+      break;
+    case "right":
+      top = targetRect.top + targetRect.height / 2 - tRect.height / 2;
+      left = targetRect.right + gap;
+      break;
+    case "left":
+      top = targetRect.top + targetRect.height / 2 - tRect.height / 2;
+      left = targetRect.left - gap - tRect.width;
+      break;
+  }
+
+  // Clamp to viewport
+  left = Math.max(10, Math.min(left, vw - tRect.width - 10));
+  top = Math.max(10, Math.min(top, vh - tRect.height - 10));
+
+  tooltip.style.top = top + "px";
+  tooltip.style.left = left + "px";
+
+  // Arrow
+  arrow.className = "tour-arrow " + pos;
+
+  // Position arrow relative to target center
+  const arrowOffset = 24;
+  if (pos === "bottom" || pos === "top") {
+    const targetCenter = targetRect.left + targetRect.width / 2 - left;
+    arrow.style.left = Math.max(12, Math.min(targetCenter - 6, tRect.width - 24)) + "px";
+    arrow.style.top = "";
+    arrow.style.right = "";
+  } else {
+    const targetCenter = targetRect.top + targetRect.height / 2 - top;
+    arrow.style.top = Math.max(12, Math.min(targetCenter - 6, tRect.height - 24)) + "px";
+    arrow.style.left = pos === "right" ? "-7px" : "";
+    arrow.style.right = pos === "left" ? "-7px" : "";
+  }
+}
+
+// Handle keyboard navigation during tour
+document.addEventListener("keydown", function(e) {
+  if (!tourActive) return;
+  if (e.key === "Escape") { tourStop(); e.preventDefault(); }
+  else if (e.key === "ArrowRight" || e.key === "Enter") { tourNext(); e.preventDefault(); }
+  else if (e.key === "ArrowLeft") { tourPrev(); e.preventDefault(); }
+});
+
+// Reposition on resize
+window.addEventListener("resize", function() {
+  if (tourActive && tourCurrentStep >= 0) tourRender();
+});
+
+// ─── Onboarding ─────────────────────────────────────────────────────
+
+let obStep = 0;
+
+function onboardingShow() {
+  const el = document.getElementById("onboarding");
+  // Pre-fill from saved settings if available
+  if (appState.connection && appState.connection.url) {
+    document.getElementById("ob-url").value = appState.connection.url;
+  }
+  el.style.display = "";
+  obStep = 0;
+  onboardingRenderStep();
+}
+
+function onboardingSkip() {
+  document.getElementById("onboarding").style.display = "none";
+  try { localStorage.setItem("onboarding_done", "1"); } catch(e) {}
+}
+
+function restartOnboarding() {
+  try { localStorage.removeItem("onboarding_done"); } catch(e) {}
+  try { localStorage.removeItem("tour_done"); } catch(e) {}
+  showTab("raw");
+  onboardingShow();
+}
+
+function onboardingRenderStep() {
+  for (let i = 0; i < 3; i++) {
+    const dot = document.getElementById("ob-dot-" + i);
+    dot.className = "onboarding-step-dot" + (i < obStep ? " done" : i === obStep ? " active" : "");
+    document.getElementById("ob-step-" + i).style.display = i === obStep ? "" : "none";
+  }
+  const btn = document.getElementById("ob-next-btn");
+  btn.textContent = obStep === 2 ? "Подключить" : "Далее";
+  document.getElementById("ob-status").style.display = "none";
+}
+
+async function onboardingNext() {
+  const statusEl = document.getElementById("ob-status");
+
+  if (obStep === 0) {
+    const url = document.getElementById("ob-url").value.trim();
+    if (!url) {
+      statusEl.textContent = "Введите URL сервера";
+      statusEl.className = "onboarding-status err";
+      statusEl.style.display = "";
+      return;
+    }
+    // Copy to header field
+    document.getElementById("url").value = url;
+    obStep = 1;
+    onboardingRenderStep();
+  } else if (obStep === 1) {
+    const token = document.getElementById("ob-token").value;
+    if (token) document.getElementById("token").value = token;
+    obStep = 2;
+    onboardingRenderStep();
+    // Auto-trigger connect
+    await onboardingConnect();
+  } else if (obStep === 2) {
+    await onboardingConnect();
+  }
+}
+
+async function onboardingConnect() {
+  const statusEl = document.getElementById("ob-status");
+  const btn = document.getElementById("ob-next-btn");
+  btn.disabled = true;
+  btn.textContent = "Проверяю...";
+  statusEl.style.display = "none";
+
+  try {
+    await doConnect();
+    // Wait a bit for SSE state update
+    await new Promise(r => setTimeout(r, 500));
+    if (appState.connection && appState.connection.verified) {
+      statusEl.textContent = "Подключено!";
+      statusEl.className = "onboarding-status ok";
+      statusEl.style.display = "";
+      try { localStorage.setItem("onboarding_done", "1"); } catch(e) {}
+      setTimeout(() => {
+        document.getElementById("onboarding").style.display = "none";
+        // Offer guided tour after first successful connection
+        let tourDone = false;
+        try { tourDone = localStorage.getItem("tour_done") === "1"; } catch(e) {}
+        if (!tourDone) {
+          setTimeout(() => tourStart(), 400);
+        }
+      }, 800);
+    } else {
+      statusEl.textContent = "Не удалось подключиться. Проверьте URL и ключ.";
+      statusEl.className = "onboarding-status err";
+      statusEl.style.display = "";
+      btn.textContent = "Повторить";
+    }
+  } catch(e) {
+    statusEl.textContent = "Ошибка: " + e.message;
+    statusEl.className = "onboarding-status err";
+    statusEl.style.display = "";
+    btn.textContent = "Повторить";
+  }
+  btn.disabled = false;
+}
+
 // ─── Init ────────────────────────────────────────────────────────────
 
 fetchState().then(() => {
   connectSSE();
   loadBridgeSecret();
-  // Auto-connect if we have saved settings with URL
-  if (appState.has_saved_settings && appState.connection && appState.connection.url && !appState.connection.verified) {
+
+  // Show onboarding if never completed and not connected
+  let obDone = false;
+  try { obDone = localStorage.getItem("onboarding_done") === "1"; } catch(e) {}
+
+  if (!obDone && !(appState.connection && appState.connection.verified)) {
+    // If we have saved settings, auto-connect first, then show onboarding only if it fails
+    if (appState.has_saved_settings && appState.connection && appState.connection.url) {
+      doConnect().then(() => {
+        setTimeout(() => {
+          if (!(appState.connection && appState.connection.verified)) {
+            onboardingShow();
+          } else {
+            try { localStorage.setItem("onboarding_done", "1"); } catch(e) {}
+          }
+        }, 600);
+      });
+    } else {
+      onboardingShow();
+    }
+  } else if (!obDone && appState.connection && appState.connection.verified) {
+    // Already connected — mark onboarding done
+    try { localStorage.setItem("onboarding_done", "1"); } catch(e) {}
+  } else if (appState.has_saved_settings && appState.connection && appState.connection.url && !appState.connection.verified) {
+    // Onboarding done but not connected — auto-connect with saved settings
     doConnect();
   }
 });
@@ -2328,6 +3807,7 @@ fetchState().then(() => {
 <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/ace.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/theme-one_dark.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ace-builds@1.36.5/src-min-noconflict/ext-language_tools.js"></script>
 <script>
 (function() {
   // ─── 1C Query Language mode for Ace (direct require) ─────────────
@@ -2446,13 +3926,105 @@ fetchState().then(() => {
     showPrintMargin: false,
     wrap: true,
     tabSize: 4,
-    useSoftTabs: false
+    useSoftTabs: false,
+    enableBasicAutocompletion: true,
+    enableLiveAutocompletion: true,
+    enableSnippets: false
   });
   editor.renderer.setScrollMargin(4, 4);
+
+  // ─── Autocomplete: 1C Query Language completer ─────────────────────
+  (function() {
+    var langTools = ace.require("ace/ext/language_tools");
+
+    // Build word list from existing keyword/function/type definitions
+    var kwList = keywords.split("|").map(function(w) {
+      return { caption: w, value: w, score: 1000, meta: "ключевое слово" };
+    });
+    var fnList = builtinFunctions.split("|").map(function(w) {
+      return { caption: w, value: w + "(", score: 900, meta: "функция" };
+    });
+    var typeList = types.split("|").map(function(w) {
+      return { caption: w, value: w, score: 800, meta: "тип" };
+    });
+
+    // Common table prefixes from 1C metadata
+    var metaTables = [
+      "Справочник", "Catalog",
+      "Документ", "Document",
+      "РегистрНакопления", "AccumulationRegister",
+      "РегистрСведений", "InformationRegister",
+      "РегистрБухгалтерии", "AccountingRegister",
+      "РегистрРасчета", "CalculationRegister",
+      "ПланСчетов", "ChartOfAccounts",
+      "ПланВидовРасчета", "ChartOfCalculationTypes",
+      "ПланВидовХарактеристик", "ChartOfCharacteristicTypes",
+      "ПланОбмена", "ExchangePlan",
+      "Перечисление", "Enum",
+      "БизнесПроцесс", "BusinessProcess",
+      "Задача", "Task",
+      "Последовательность", "Sequence",
+      "КритерийОтбора", "FilterCriterion",
+      "ЖурналДокументов", "DocumentJournal",
+      "Константа", "Constant"
+    ];
+    var metaList = metaTables.map(function(w) {
+      return { caption: w, value: w + ".", score: 700, meta: "метаданные" };
+    });
+
+    var allWords = kwList.concat(fnList).concat(typeList).concat(metaList);
+
+    var oneCCompleter = {
+      getCompletions: function(editor, session, pos, prefix, callback) {
+        if (!prefix || prefix.length < 1) { callback(null, []); return; }
+        var lowerPrefix = prefix.toLowerCase();
+        var filtered = allWords.filter(function(item) {
+          return item.caption.toLowerCase().indexOf(lowerPrefix) === 0;
+        });
+        callback(null, filtered);
+      }
+    };
+
+    langTools.setCompleters([oneCCompleter]);
+  })();
 
   window.queryEditorFocused = false;
   editor.on("focus", function() { window.queryEditorFocused = true; });
   editor.on("blur", function() { window.queryEditorFocused = false; });
+
+  // ─── Hotkeys (Ace) ─────────────────────────────────────────────────
+  editor.commands.addCommand({
+    name: "executeQuery",
+    bindKey: { win: "Ctrl-Enter", mac: "Cmd-Enter" },
+    exec: function() {
+      var approveBtn = document.getElementById("btn-approve-code");
+      if (approveBtn && approveBtn.style.display !== "none") {
+        doApproveCode();
+      } else {
+        doQuery("masked");
+      }
+    }
+  });
+
+  // ─── Hotkeys (global) ─────────────────────────────────────────────
+  document.addEventListener("keydown", function(e) {
+    // Escape — cancel query
+    if (e.key === "Escape") {
+      var cancelBtn = document.getElementById("cancel-btn");
+      if (cancelBtn && cancelBtn.style.display !== "none") {
+        doCancelQuery();
+        e.preventDefault();
+      }
+    }
+    // Ctrl+S — save settings (when Settings tab is active)
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      var settingsPanel = document.getElementById("tab-settings");
+      if (settingsPanel && settingsPanel.classList.contains("active")) {
+        e.preventDefault();
+        saveSettings();
+      }
+    }
+  });
 
   // Unified API for the rest of the app
   window.queryEditor = {
