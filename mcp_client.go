@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ToolCallResult holds the result of a single MCP tool call.
@@ -121,12 +122,14 @@ func (c *McpClient) ListTools(ctx context.Context) ([]string, error) {
 
 // CallTool invokes an MCP tool by name and returns the result.
 func (c *McpClient) CallTool(ctx context.Context, toolName string, arguments map[string]any) (*ToolCallResult, error) {
+	startedAt := time.Now()
 	params := map[string]any{
 		"name":      toolName,
 		"arguments": arguments,
 	}
 	resp, err := c.sendRequest(ctx, "tools/call", params)
 	if err != nil {
+		mcpLog.Add(toolName, c.URL, arguments, nil, err, startedAt)
 		return nil, err
 	}
 
@@ -134,14 +137,18 @@ func (c *McpClient) CallTool(ctx context.Context, toolName string, arguments map
 	if !ok {
 		// Check for error
 		if errObj, ok := resp["error"].(map[string]any); ok {
-			return &ToolCallResult{
+			tcr := &ToolCallResult{
 				ToolName:  toolName,
 				Arguments: arguments,
 				Text:      fmt.Sprintf("MCP error: %v", errObj["message"]),
 				IsError:   true,
-			}, nil
+			}
+			mcpLog.Add(toolName, c.URL, arguments, tcr, nil, startedAt)
+			return tcr, nil
 		}
-		return nil, fmt.Errorf("unexpected tools/call response format")
+		err := fmt.Errorf("unexpected tools/call response format")
+		mcpLog.Add(toolName, c.URL, arguments, nil, err, startedAt)
+		return nil, err
 	}
 
 	isError := false
@@ -167,13 +174,15 @@ func (c *McpClient) CallTool(ctx context.Context, toolName string, arguments map
 	// Extract structured content
 	structured := result["structuredContent"]
 
-	return &ToolCallResult{
+	tcr := &ToolCallResult{
 		ToolName:   toolName,
 		Arguments:  arguments,
 		Text:       text,
 		Structured: structured,
 		IsError:    isError,
-	}, nil
+	}
+	mcpLog.Add(toolName, c.URL, arguments, tcr, nil, startedAt)
+	return tcr, nil
 }
 
 // CallNamedTool resolves a logical tool name and calls it.

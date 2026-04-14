@@ -102,7 +102,6 @@ body {
 
 .mask-bar { display: flex; gap: 12px; padding: 6px 16px !important; align-items: center; }
 .mask-field { flex: 1; display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
-.skip-numeric-label { display: flex; align-items: center; gap: 4px; flex-shrink: 0; cursor: pointer; }
 .mask-label { font-size: 11px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; padding-top: 5px; flex-shrink: 0; }
 .mask-input {
   flex: 1; min-width: 0; resize: vertical;
@@ -787,12 +786,12 @@ body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
 .fields-toolbar {
   display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
 }
-.fields-toolbar input {
+.fields-toolbar input[type="text"], .fields-toolbar input[type="search"] {
   flex: 1; min-width: 140px; padding: 6px 10px; font-size: 12px;
   background: var(--input-bg); border: 1px solid var(--input-border);
   border-radius: var(--radius-xs); color: var(--text-primary);
 }
-.fields-toolbar input:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
+.fields-toolbar input[type="text"]:focus, .fields-toolbar input[type="search"]:focus { outline: none; border-color: var(--input-focus); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 .fields-table {
   width: 100%; border-collapse: collapse; font-size: 12px;
@@ -873,11 +872,9 @@ body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
     <div class="mask-field">
       <span class="mask-label">Белый список (не шифровать):</span>
       <textarea id="allow-plain" class="mask-input" rows="1" placeholder="Поля, которые не шифровать (через запятую)..." oninput="onAllowPlainInput()"></textarea>
+      <button class="btn btn-ghost btn-xs" onclick="saveAllowPlainAsDefault()" title="Сохранить текущий список в постоянные настройки (defaults)">&#128190; В настройки</button>
+      <button class="btn btn-ghost btn-xs" onclick="clearAllowPlain()" title="Очистить белый список (только для текущей сессии)">&#10005; Очистить</button>
     </div>
-    <label class="skip-numeric-label" title="Не шифровать значения, которые выглядят как настоящие числа (суммы, количества, цены). Номера документов, телефоны и прочие цифровые идентификаторы продолжат шифроваться.">
-      <input type="checkbox" id="skip-numeric-cb" onchange="onSkipNumericChange()">
-      <span class="mask-label" style="padding-top:0; cursor:pointer;">Числовые значения</span>
-    </label>
     <textarea id="force-mask" style="display:none"></textarea>
   </div>
 
@@ -1008,6 +1005,8 @@ body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
         <div class="settings-subtabs">
           <button class="settings-subtab active" onclick="showSettingsSub('general',this)">Основные</button>
           <button class="settings-subtab" onclick="showSettingsSub('fields',this)">Поля маскирования</button>
+          <button class="settings-subtab" onclick="showSettingsSub('types',this)">Политика типов</button>
+          <button class="settings-subtab" onclick="showSettingsSub('logs',this)">Логирование</button>
         </div>
 
         <!-- Sub-tab: General -->
@@ -1040,10 +1039,6 @@ body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
                 <label class="settings-field settings-check-wrap">
                   <input type="checkbox" id="s-auto-send">
                   <span class="settings-label">Авто-режим (отправлять данные агенту без подтверждения)</span>
-                </label>
-                <label class="settings-field settings-check-wrap">
-                  <input type="checkbox" id="s-skip-numeric">
-                  <span class="settings-label">Не шифровать числовые значения (суммы, количества, цены)</span>
                 </label>
                 <label class="settings-field settings-check-wrap">
                   <input type="checkbox" id="s-sound-notify">
@@ -1115,9 +1110,102 @@ body.theme-light .theme-toggle .toggle-thumb { left: 15px; }
           </div>
         </div>
 
+        <!-- Sub-tab: Type policy -->
+        <div id="settings-sub-types" class="settings-subpanel">
+          <div class="settings-grid" style="max-width:900px;">
+
+            <span class="settings-hint" style="margin-bottom:4px;display:block">
+              Колонки классифицируются по типу метаданных 1С, возвращаемому сервером MCP.
+              Правила префиксов (заканчиваются на точку: <code>Перечисление.</code>) распространяются на всё семейство.
+              Точные имена (<code>Справочник.Валюты</code>) действуют только на указанный тип.
+              <b>Принудительная маскировка перекрывает открытые поля.</b> Если схема недоступна, работают только правила по именам полей.
+            </span>
+
+            <div class="fields-toolbar">
+              <input type="text" id="tp-new-type" placeholder="Тип или префикс (например, Перечисление.)..." onkeydown="if(event.key==='Enter'){tpAddPlain();event.preventDefault();}">
+              <button class="btn btn-primary btn-xs" onclick="tpAddPlain()" title="Не шифровать значения этого типа">+ Открыть</button>
+              <button class="btn btn-ghost btn-xs" onclick="tpAddForced()" title="Принудительно маскировать" style="color:var(--warning)">+ Маскировать</button>
+              <span style="flex:1"></span>
+              <button class="btn btn-ghost btn-xs" onclick="tpResetDefaults()" title="Сбросить к дефолтам">&#8617; Сбросить</button>
+            </div>
+
+            <table class="fields-table" id="tp-table">
+              <thead>
+                <tr>
+                  <th>Тип / Префикс</th>
+                  <th style="width:120px; text-align:right">Политика</th>
+                  <th style="width:60px;"></th>
+                </tr>
+              </thead>
+              <tbody id="tp-body"></tbody>
+            </table>
+            <div id="tp-empty" class="fields-empty" style="display:none">Нет правил.</div>
+
+
+          </div>
+        </div>
+
+        <!-- Sub-tab: Logs -->
+        <div id="settings-sub-logs" class="settings-subpanel">
+          <div class="settings-grid" style="max-width:1100px;">
+
+            <span class="settings-hint" style="margin-bottom:4px;display:block">
+              Журнал вызовов MCP (query, execute_code и т.д.). Виден только в UI &mdash;
+              агент не имеет доступа. Значения <code>Key</code> маскируются. Буфер &mdash; последние
+              100 вызовов, в памяти, очищается при перезапуске.
+            </span>
+
+            <div class="fields-toolbar">
+              <button class="btn btn-ghost btn-xs" onclick="logsRefresh()" title="Обновить">&#8635; Обновить</button>
+              <label class="settings-field settings-check-wrap" style="margin:0">
+                <input type="checkbox" id="logs-autorefresh" onchange="logsToggleAutoRefresh()">
+                <span class="settings-label">Авто&nbsp;(3&nbsp;с)</span>
+              </label>
+              <span style="flex:1"></span>
+              <span class="settings-hint" id="logs-count-hint"></span>
+              <button class="btn btn-ghost btn-xs" onclick="logsClear()" title="Очистить буфер" style="color:var(--warning)">&#128465; Очистить</button>
+            </div>
+
+            <table class="fields-table" id="logs-table">
+              <thead>
+                <tr>
+                  <th style="width:78px">Время</th>
+                  <th style="width:130px">Инструмент</th>
+                  <th style="width:60px;text-align:right">мс</th>
+                  <th style="width:58px;text-align:right">Размер</th>
+                  <th style="width:90px;text-align:center">Схема</th>
+                  <th>Превью</th>
+                </tr>
+              </thead>
+              <tbody id="logs-body"></tbody>
+            </table>
+            <div id="logs-empty" class="fields-empty" style="display:none">Журнал пуст.</div>
+
+          </div>
+        </div>
+
       </div>
     </div>
 
+  </div>
+
+  <!-- Log detail modal -->
+  <div id="log-detail-overlay" class="onboarding-overlay" style="display:none">
+    <div class="onboarding-card" style="max-width:80vw;max-height:85vh;display:flex;flex-direction:column;">
+      <h2 style="margin-bottom:8px">Детали вызова MCP</h2>
+      <div id="log-detail-meta" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;white-space:pre-wrap;font-family:monospace"></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-ghost btn-xs" onclick="logsDetailTab('text',this)" id="log-tab-text">Ответ (text)</button>
+        <button class="btn btn-ghost btn-xs" onclick="logsDetailTab('args',this)" id="log-tab-args">Запрос (args)</button>
+        <button class="btn btn-ghost btn-xs" onclick="logsDetailTab('structured',this)" id="log-tab-structured">Structured</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-ghost btn-xs" onclick="logsDetailCopy()" title="Скопировать в буфер">&#128203; Копировать</button>
+      </div>
+      <pre id="log-detail-body" style="flex:1;overflow:auto;background:var(--bg-elevated);padding:10px;border-radius:6px;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:60vh"></pre>
+      <div class="settings-actions" style="margin-top:10px;justify-content:flex-end">
+        <button class="btn btn-primary" onclick="logsDetailClose()">Закрыть</button>
+      </div>
+    </div>
   </div>
 
   <!-- ══════ Status Bar ══════ -->
@@ -1485,10 +1573,11 @@ function render(s) {
     updateAllowPlainHighlight();
   }
 
-  // Sync skip-numeric checkbox
-  const skipNumericCb = document.getElementById("skip-numeric-cb");
-  if (skipNumericCb.checked !== !!s.skip_numeric_values) {
-    skipNumericCb.checked = !!s.skip_numeric_values;
+  // Sync type policy from server (only when the types sub-tab is visible —
+  // otherwise working copy may be mid-edit).
+  const typesPanel = document.getElementById("settings-sub-types");
+  if (typesPanel && !typesPanel.classList.contains("active")) {
+    tpInitFromState(s);
   }
 
   // Agent-suggested fields
@@ -2413,9 +2502,36 @@ function syncAcceptedSuggestions() {
   }
 }
 
-async function onSkipNumericChange() {
-  const enabled = document.getElementById("skip-numeric-cb").checked;
-  await api("/api/skip_numeric", { enabled });
+async function clearAllowPlain() {
+  const el = document.getElementById("allow-plain");
+  if (!el.value.trim()) { toast("Список уже пуст"); return; }
+  el.value = "";
+  acceptedSuggestions.clear();
+  updateAllowPlainHighlight();
+  syncAcceptedSuggestions();
+  try {
+    await api("/api/set_whitelist", {
+      allow_plain_fields: "",
+      force_mask_fields: document.getElementById("force-mask").value
+    });
+    await api("/api/remask", {
+      force_mask_fields: mergedForceMask(),
+      allow_plain_fields: mergedAllowPlain()
+    });
+    toast("\u2705 Белый список очищен (для текущей сессии)");
+  } catch (e) { toast("Ошибка: " + e.message); }
+}
+
+async function saveAllowPlainAsDefault() {
+  const allowPlain = document.getElementById("allow-plain").value.trim();
+  try {
+    // Pull current settings to preserve everything else.
+    const s = await api("/api/settings");
+    const payload = { ...s, defaults_allow_plain_fields: allowPlain, mcp_token: "" };
+    const r = await api("/api/settings", payload);
+    if (r.ok) toast("\u2705 Список сохранён в постоянные настройки");
+    else toast("Ошибка: " + (r.error || "?"));
+  } catch (e) { toast("Ошибка: " + e.message); }
 }
 
 async function allowField(fieldName) {
@@ -2753,6 +2869,323 @@ function showSettingsSub(name, btn) {
   document.querySelectorAll(".settings-subtab").forEach(b => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
   if (name === "fields") ftRenderTable();
+  if (name === "types") tpRenderTable();
+  if (name === "logs") logsRefresh();
+  else logsStopAutoRefresh();
+}
+
+// ─── MCP Call Logs ───────────────────────────────────────────────
+// Local UI-only view of recent MCP calls. Endpoints: /api/logs,
+// /api/logs/entry?id=, /api/logs/clear. Agent has NO access.
+
+let logsAutoTimer = null;
+let logsLastEntries = [];
+let logsDetailCurrent = null;
+let logsDetailMode = "text";
+
+function logsStopAutoRefresh() {
+  if (logsAutoTimer) { clearInterval(logsAutoTimer); logsAutoTimer = null; }
+  const cb = document.getElementById("logs-autorefresh");
+  if (cb) cb.checked = false;
+}
+
+function logsToggleAutoRefresh() {
+  const cb = document.getElementById("logs-autorefresh");
+  if (cb && cb.checked) {
+    if (logsAutoTimer) clearInterval(logsAutoTimer);
+    logsAutoTimer = setInterval(logsRefresh, 3000);
+  } else {
+    logsStopAutoRefresh();
+  }
+}
+
+async function logsRefresh() {
+  try {
+    const r = await fetch("/api/logs", { headers: { "X-Session-Token": TOKEN } });
+    if (!r.ok) return;
+    const j = await r.json();
+    logsLastEntries = j.entries || [];
+    const hint = document.getElementById("logs-count-hint");
+    if (hint) hint.textContent = (j.count || 0) + " записей";
+    logsRenderTable();
+  } catch (e) {}
+}
+
+function logsRenderTable() {
+  const body = document.getElementById("logs-body");
+  const empty = document.getElementById("logs-empty");
+  if (!body) return;
+  body.innerHTML = "";
+  if (!logsLastEntries.length) {
+    if (empty) empty.style.display = "block";
+    return;
+  }
+  if (empty) empty.style.display = "none";
+
+  for (const e of logsLastEntries) {
+    const tr = document.createElement("tr");
+    tr.style.cursor = "pointer";
+    tr.onclick = () => logsShowDetail(e.id);
+
+    const ts = new Date(e.timestamp);
+    const tsStr = ts.toLocaleTimeString("ru-RU", { hour12: false }) +
+      "." + String(ts.getMilliseconds()).padStart(3, "0");
+
+    const tdTime = document.createElement("td");
+    tdTime.textContent = tsStr;
+    tdTime.style.fontFamily = "monospace";
+    tdTime.style.fontSize = "11px";
+
+    const tdTool = document.createElement("td");
+    tdTool.textContent = e.tool;
+    tdTool.style.fontFamily = "monospace";
+    tdTool.style.fontSize = "11px";
+    if (e.is_error) tdTool.style.color = "var(--warning)";
+
+    const tdDur = document.createElement("td");
+    tdDur.textContent = e.duration_ms;
+    tdDur.style.textAlign = "right";
+    tdDur.style.fontFamily = "monospace";
+    tdDur.style.fontSize = "11px";
+
+    const tdLen = document.createElement("td");
+    tdLen.textContent = logsFormatSize(e.text_len);
+    tdLen.style.textAlign = "right";
+    tdLen.style.fontFamily = "monospace";
+    tdLen.style.fontSize = "11px";
+
+    const tdSchema = document.createElement("td");
+    tdSchema.style.textAlign = "center";
+    tdSchema.style.fontSize = "11px";
+    if (e.is_error) {
+      tdSchema.textContent = "✖";
+      tdSchema.style.color = "var(--warning)";
+      tdSchema.title = e.error_message || "Ошибка";
+    } else if (e.has_schema) {
+      tdSchema.textContent = "✓ JSON";
+      tdSchema.style.color = "var(--success,#4caf50)";
+      tdSchema.title = "Ответ со схемой (columns/rows)";
+    } else {
+      tdSchema.textContent = "TSV";
+      tdSchema.style.color = "var(--text-secondary)";
+      tdSchema.title = "Без схемы — старый формат";
+    }
+
+    const tdPrev = document.createElement("td");
+    tdPrev.textContent = e.text_preview || "";
+    tdPrev.style.fontFamily = "monospace";
+    tdPrev.style.fontSize = "11px";
+    tdPrev.style.whiteSpace = "nowrap";
+    tdPrev.style.overflow = "hidden";
+    tdPrev.style.textOverflow = "ellipsis";
+    tdPrev.style.maxWidth = "600px";
+    if (e.is_error) tdPrev.style.color = "var(--warning)";
+
+    tr.appendChild(tdTime);
+    tr.appendChild(tdTool);
+    tr.appendChild(tdDur);
+    tr.appendChild(tdLen);
+    tr.appendChild(tdSchema);
+    tr.appendChild(tdPrev);
+    body.appendChild(tr);
+  }
+}
+
+function logsFormatSize(n) {
+  if (n == null) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(1) + " MB";
+}
+
+async function logsClear() {
+  if (!confirm("Очистить журнал MCP-вызовов?")) return;
+  try {
+    await fetch("/api/logs/clear", {
+      method: "POST",
+      headers: { "X-Session-Token": TOKEN },
+    });
+    logsRefresh();
+  } catch (e) {}
+}
+
+async function logsShowDetail(id) {
+  try {
+    const r = await fetch("/api/logs/entry?id=" + id, { headers: { "X-Session-Token": TOKEN } });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j.ok || !j.entry) return;
+    logsDetailCurrent = j.entry;
+    logsDetailMode = "text";
+    const meta = document.getElementById("log-detail-meta");
+    const e = j.entry;
+    const parts = [
+      "Время:      " + new Date(e.timestamp).toLocaleString("ru-RU"),
+      "Инструмент: " + e.tool,
+      "URL:        " + (e.url || ""),
+      "Длительность: " + e.duration_ms + " мс",
+      "Размер:     " + logsFormatSize(e.text_len) + (e.text_truncated ? " (сохранено до 128 KB)" : ""),
+      "Схема:      " + (e.has_schema ? "да (JSON со columns/rows)" : "нет"),
+      "Ошибка:     " + (e.is_error ? (e.error_message || "да") : "нет"),
+    ];
+    if (meta) meta.textContent = parts.join("\n");
+    document.getElementById("log-detail-overlay").style.display = "flex";
+    logsDetailTab("text", document.getElementById("log-tab-text"));
+  } catch (e) {}
+}
+
+function logsDetailTab(mode, btn) {
+  logsDetailMode = mode;
+  const body = document.getElementById("log-detail-body");
+  const e = logsDetailCurrent;
+  if (!e || !body) return;
+  document.querySelectorAll("#log-detail-overlay button.btn-ghost").forEach(b => b.style.background = "");
+  if (btn) btn.style.background = "var(--bg-elevated)";
+  if (mode === "text") {
+    body.textContent = e.text || "";
+    // Если JSON — попробуем pretty-print для читабельности
+    const t = (e.text || "").trim();
+    if (t.startsWith("{") || t.startsWith("[")) {
+      try { body.textContent = JSON.stringify(JSON.parse(t), null, 2); } catch {}
+    }
+  } else if (mode === "args") {
+    body.textContent = JSON.stringify(e.args || {}, null, 2);
+  } else if (mode === "structured") {
+    if (e.has_structured) {
+      body.textContent = typeof e.structured === "string"
+        ? e.structured
+        : JSON.stringify(e.structured, null, 2);
+    } else {
+      body.textContent = "(structuredContent отсутствует в ответе)";
+    }
+  }
+}
+
+function logsDetailClose() {
+  document.getElementById("log-detail-overlay").style.display = "none";
+  logsDetailCurrent = null;
+}
+
+async function logsDetailCopy() {
+  const body = document.getElementById("log-detail-body");
+  if (!body) return;
+  try {
+    await navigator.clipboard.writeText(body.textContent || "");
+  } catch {}
+}
+
+// ─── Type Policy Table ──────────────────────────────────────────────
+// tpRules is a working copy of { plain: [...], force: [...] } where each
+// entry includes {name, kind: "prefix"|"exact"}. When saved it's converted
+// to PersistedTypePolicy JSON and sent to /api/set_type_policy.
+let tpRules = { plain: [], force: [] };
+
+function tpFromEffective(eff) {
+  const rules = { plain: [], force: [] };
+  (eff?.plain_prefixes || []).forEach(p => rules.plain.push({ name: p, kind: "prefix" }));
+  (eff?.plain_types || []).forEach(p => rules.plain.push({ name: p, kind: "exact" }));
+  (eff?.forced_mask_prefixes || []).forEach(p => rules.force.push({ name: p, kind: "prefix" }));
+  (eff?.forced_mask_types || []).forEach(p => rules.force.push({ name: p, kind: "exact" }));
+  return rules;
+}
+
+function tpInitFromState(s) {
+  const eff = s?.type_policy_effective || {};
+  tpRules = tpFromEffective(eff);
+}
+
+function tpRenderTable() {
+  const tbody = document.getElementById("tp-body");
+  const empty = document.getElementById("tp-empty");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  const all = [
+    ...tpRules.plain.map(r => ({ ...r, policy: "plain" })),
+    ...tpRules.force.map(r => ({ ...r, policy: "mask" })),
+  ];
+  all.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (all.length === 0) {
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  all.forEach((r, idx) => {
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.textContent = r.name + (r.kind === "prefix" ? "  (префикс)" : "");
+    const tdPolicy = document.createElement("td");
+    tdPolicy.style.textAlign = "right";
+    tdPolicy.innerHTML = r.policy === "plain"
+      ? '<span style="color:var(--success,#4ea55a)">открыто</span>'
+      : '<span style="color:var(--warning,#c88)">маскировать</span>';
+    const tdAct = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.className = "btn btn-ghost btn-xs";
+    btn.textContent = "✕";
+    btn.title = "Удалить правило";
+    btn.onclick = () => { tpRemove(r.name, r.policy); };
+    tdAct.appendChild(btn);
+    tr.appendChild(tdName);
+    tr.appendChild(tdPolicy);
+    tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+    idx; // silence unused
+  });
+}
+
+function tpAddPlain() { tpAddRule("plain"); }
+function tpAddForced() { tpAddRule("mask"); }
+
+function tpAddRule(policy) {
+  const el = document.getElementById("tp-new-type");
+  const raw = el.value.trim();
+  if (!raw) return;
+  const kind = raw.endsWith(".") ? "prefix" : "exact";
+  const bucket = policy === "plain" ? tpRules.plain : tpRules.force;
+  // Remove duplicate if already present with the other policy.
+  const otherBucket = policy === "plain" ? tpRules.force : tpRules.plain;
+  for (let i = otherBucket.length - 1; i >= 0; i--) {
+    if (otherBucket[i].name === raw) otherBucket.splice(i, 1);
+  }
+  if (!bucket.some(r => r.name === raw)) {
+    bucket.push({ name: raw, kind });
+  }
+  el.value = "";
+  tpRenderTable();
+  tpSave(true); // auto-save — consistent with tpResetDefaults
+}
+
+function tpRemove(name, policy) {
+  const bucket = policy === "plain" ? tpRules.plain : tpRules.force;
+  const idx = bucket.findIndex(r => r.name === name);
+  if (idx >= 0) bucket.splice(idx, 1);
+  tpRenderTable();
+  tpSave(true); // auto-save
+}
+
+function tpResetDefaults() {
+  if (!confirm("Сбросить политику к дефолтам? Ваши правки будут удалены после 'Применить'.")) return;
+  tpRules = { plain: [], force: [] };
+  // Empty PersistedTypePolicy → server will rebuild defaults.
+  tpSave(true);
+}
+
+async function tpSave(silent) {
+  const payload = {
+    plain_types: tpRules.plain.filter(r => r.kind === "exact").map(r => r.name),
+    plain_prefixes: tpRules.plain.filter(r => r.kind === "prefix").map(r => r.name),
+    forced_mask_types: tpRules.force.filter(r => r.kind === "exact").map(r => r.name),
+    forced_mask_prefixes: tpRules.force.filter(r => r.kind === "prefix").map(r => r.name),
+  };
+  try {
+    await api("/api/set_type_policy", { type_policy: payload });
+    if (!silent) toast("Политика типов применена.");
+  } catch (e) {
+    toast("Ошибка: " + e.message);
+  }
 }
 
 // ─── Fields Table ───────────────────────────────────────────────────
@@ -2960,7 +3393,6 @@ async function loadSettingsForm() {
     else { hint.style.display = "none"; }
     document.getElementById("s-preview-chars").value = s.defaults_preview_chars || 4000;
     document.getElementById("s-auto-send").checked = !!s.defaults_auto_send;
-    document.getElementById("s-skip-numeric").checked = !!s.defaults_skip_numeric;
     document.getElementById("s-sound-notify").checked = localStorage.getItem("sound_notifications") === "true";
     document.getElementById("s-allow-plain").value = s.defaults_allow_plain_fields || "";
     document.getElementById("s-force-mask").value = s.defaults_force_mask_fields || "";
@@ -2976,7 +3408,6 @@ async function saveSettings() {
     mcp_token: document.getElementById("s-mcp-token").value,
     defaults_preview_chars: parseInt(document.getElementById("s-preview-chars").value) || 4000,
     defaults_auto_send: document.getElementById("s-auto-send").checked,
-    defaults_skip_numeric: document.getElementById("s-skip-numeric").checked,
     defaults_allow_plain_fields: document.getElementById("s-allow-plain").value.trim(),
     defaults_force_mask_fields: document.getElementById("s-force-mask").value.trim(),
   };

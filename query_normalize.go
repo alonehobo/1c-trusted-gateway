@@ -729,3 +729,187 @@ func isSpaceRune(r rune) bool {
 func isIdentRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
+
+// stripPresentationCalls removes calls to ПРЕДСТАВЛЕНИЕ/ПРЕДСТАВЛЕНИЕССЫЛКИ/
+// PRESENTATION/REFPRESENTATION, replacing NAME(expr) with expr.
+//
+// Rationale: ПРЕДСТАВЛЕНИЕ() converts a reference to a string in 1C.
+// For type-aware masking to work, the gateway must receive the reference
+// itself (so it can be classified by metadata type). Stripping these calls
+// before sending the query to 1C preserves the reference type in the result.
+//
+// Behavior:
+//   - Case-insensitive matching on a fixed banlist.
+//   - Respects nested parentheses (the argument may be ВЫБОР ... КОНЕЦ).
+//   - Skips string literals "..." (with "" escape) and // comments.
+//   - Runs up to 8 passes to handle nested calls; stops when stable.
+//   - An identifier named Представление without a following ( is left alone.
+func stripPresentationCalls(query string) string {
+	const maxIterations = 8
+	for iter := 0; iter < maxIterations; iter++ {
+		next := stripPresentationPass(query)
+		if next == query {
+			return query
+		}
+		query = next
+	}
+	return query
+}
+
+// stripPresentationPass performs one pass of presentation-call removal.
+func stripPresentationPass(query string) string {
+	banlist := [][]rune{
+		[]rune("ПРЕДСТАВЛЕНИЕССЫЛКИ"),
+		[]rune("ПРЕДСТАВЛЕНИЕ"),
+		[]rune("REFPRESENTATION"),
+		[]rune("PRESENTATION"),
+	}
+
+	runes := []rune(query)
+	n := len(runes)
+	var b strings.Builder
+	b.Grow(len(query))
+
+	i := 0
+	for i < n {
+		r := runes[i]
+
+		// Skip // comments until end of line
+		if r == '/' && i+1 < n && runes[i+1] == '/' {
+			for i < n && runes[i] != '\n' {
+				b.WriteRune(runes[i])
+				i++
+			}
+			continue
+		}
+
+		// Skip "..." string literals (with "" escape)
+		if r == '"' {
+			b.WriteRune(runes[i])
+			i++
+			for i < n {
+				if runes[i] == '"' {
+					// Doubled quote → escaped, stay inside literal
+					if i+1 < n && runes[i+1] == '"' {
+						b.WriteRune(runes[i])
+						b.WriteRune(runes[i+1])
+						i += 2
+						continue
+					}
+					b.WriteRune(runes[i])
+					i++
+					break
+				}
+				b.WriteRune(runes[i])
+				i++
+			}
+			continue
+		}
+
+		// Try to match a banlist keyword at word boundary
+		if !isIdentRune(r) || (i > 0 && isIdentRune(runes[i-1])) {
+			b.WriteRune(runes[i])
+			i++
+			continue
+		}
+
+		matchedLen := 0
+		for _, kw := range banlist {
+			if matchWordAt(runes, i, kw) {
+				matchedLen = len(kw)
+				break
+			}
+		}
+		if matchedLen == 0 {
+			b.WriteRune(runes[i])
+			i++
+			continue
+		}
+
+		// After the identifier, look for '(' (whitespace between is allowed).
+		j := i + matchedLen
+		k := j
+		for k < n && isSpaceRune(runes[k]) {
+			k++
+		}
+		if k >= n || runes[k] != '(' {
+			// Just an identifier named Представление etc. — leave it.
+			for p := i; p < j; p++ {
+				b.WriteRune(runes[p])
+			}
+			i = j
+			continue
+		}
+
+		// Find matching ')' respecting nested parens and string literals.
+		argStart := k + 1
+		argEnd, ok := findMatchingParen(runes, k)
+		if !ok {
+			// Unbalanced — leave as-is.
+			b.WriteRune(runes[i])
+			i++
+			continue
+		}
+
+		// Emit the argument content (inner runes between parens), trimmed.
+		inner := strings.TrimSpace(string(runes[argStart:argEnd]))
+		if inner == "" {
+			// ПРЕДСТАВЛЕНИЕ() with empty arg — drop the call entirely.
+			i = argEnd + 1
+			continue
+		}
+		b.WriteString(inner)
+		i = argEnd + 1
+	}
+
+	return b.String()
+}
+
+// findMatchingParen finds the index of the ')' matching the '(' at openIdx.
+// Respects nested parens, "..." string literals (with "" escape), and //
+// comments. Returns (closeIdx, true) on success, (0, false) if unbalanced.
+func findMatchingParen(runes []rune, openIdx int) (int, bool) {
+	n := len(runes)
+	if openIdx >= n || runes[openIdx] != '(' {
+		return 0, false
+	}
+	depth := 1
+	i := openIdx + 1
+	for i < n {
+		r := runes[i]
+
+		if r == '/' && i+1 < n && runes[i+1] == '/' {
+			for i < n && runes[i] != '\n' {
+				i++
+			}
+			continue
+		}
+
+		if r == '"' {
+			i++
+			for i < n {
+				if runes[i] == '"' {
+					if i+1 < n && runes[i+1] == '"' {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+			continue
+		}
+
+		if r == '(' {
+			depth++
+		} else if r == ')' {
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+		i++
+	}
+	return 0, false
+}

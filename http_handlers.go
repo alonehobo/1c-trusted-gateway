@@ -51,12 +51,16 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux.HandleFunc("/api/settings/export", ws.handleAPISettingsExport)
 	mux.HandleFunc("/api/remask", ws.handleAPIRemask)
 	mux.HandleFunc("/api/set_whitelist", ws.handleAPISetWhitelist)
+	mux.HandleFunc("/api/set_type_policy", ws.handleAPISetTypePolicy)
 	mux.HandleFunc("/api/exclude_fields", ws.handleAPIExcludeFields)
 	mux.HandleFunc("/api/suggest_fields", ws.handleAPISuggestFields)
 	mux.HandleFunc("/api/confirm_suggested_fields", ws.handleAPIConfirmSuggestedFields)
 	mux.HandleFunc("/api/approve_send", ws.handleAPIApproveSend)
 	mux.HandleFunc("/api/auto_send", ws.handleAPIAutoSend)
 	mux.HandleFunc("/api/skip_numeric", ws.handleAPISkipNumeric)
+	mux.HandleFunc("/api/logs", ws.handleAPILogs)
+	mux.HandleFunc("/api/logs/clear", ws.handleAPILogsClear)
+	mux.HandleFunc("/api/logs/entry", ws.handleAPILogsEntry)
 	mux.HandleFunc("/api/icon", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -464,6 +468,37 @@ func (ws *WebHTTPServer) handleAPISetWhitelist(w http.ResponseWriter, r *http.Re
 	respondJSON(w, 200, ws.App.HandleSetWhitelist(forceMask, allowPlain))
 }
 
+func (ws *WebHTTPServer) handleAPISetTypePolicy(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	data, err := ws.readJSON(r)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid JSON"})
+		return
+	}
+	// Accept either a pre-serialized JSON string, or a structured object that
+	// matches PersistedTypePolicy. IMPORTANT: check the map/object case FIRST —
+	// getStringFieldDefault uses fmt.Sprintf("%v", ...) which stringifies a
+	// map as Go's own "map[key:value]" form, not JSON, producing unparseable
+	// garbage on disk. Only fall back to the string form when the value is
+	// genuinely a string.
+	var policyJSON string
+	raw := data["type_policy"]
+	switch v := raw.(type) {
+	case map[string]any:
+		if b, err := json.Marshal(v); err == nil {
+			policyJSON = string(b)
+		}
+	case string:
+		policyJSON = v
+	case nil:
+		// empty → reset
+	}
+	respondJSON(w, 200, ws.App.HandleSetTypePolicy(policyJSON))
+}
+
 func (ws *WebHTTPServer) handleAPIExcludeFields(w http.ResponseWriter, r *http.Request) {
 	if !ws.checkToken(r) {
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
@@ -745,4 +780,80 @@ func nerRulesStatus(rules *NerRules) string {
 	}
 	return fmt.Sprintf("Загружено: %d контекстных правил, %d keyword-масок, %d custom regex",
 		len(rules.ContextPatterns), len(rules.AlwaysMaskKeywords), len(rules.CustomRegex))
+}
+
+// ── MCP call logs (UI-only) ─────────────────────────────────────
+//
+// These endpoints are token-protected and only registered on the local
+// UI HTTP server. They are NOT exposed as MCP tools, so the agent
+// cannot read the log contents.
+
+// handleAPILogs returns a summary list of recorded MCP calls (no full text,
+// only metadata + preview) so the table loads quickly.
+func (ws *WebHTTPServer) handleAPILogs(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	entries := mcpLog.All()
+	// Return newest first so the UI can render without reversing.
+	summaries := make([]map[string]any, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		preview := e.Text
+		const previewLen = 500
+		if len(preview) > previewLen {
+			preview = preview[:previewLen] + "…"
+		}
+		summaries = append(summaries, map[string]any{
+			"id":             e.ID,
+			"timestamp":      e.Timestamp,
+			"tool":           e.Tool,
+			"url":            e.URL,
+			"duration_ms":    e.DurationMs,
+			"is_error":       e.IsError,
+			"error_message":  e.ErrorMessage,
+			"text_len":       e.TextLen,
+			"text_preview":   preview,
+			"text_truncated": e.TextTruncated,
+			"has_structured": e.HasStructured,
+			"has_schema":     e.HasSchema,
+		})
+	}
+	respondJSON(w, 200, map[string]any{
+		"ok":      true,
+		"count":   len(entries),
+		"entries": summaries,
+	})
+}
+
+// handleAPILogsEntry returns one full entry (with the full Text payload)
+// so the UI can show the raw MCP response for a specific call.
+func (ws *WebHTTPServer) handleAPILogsEntry(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		respondJSON(w, 400, map[string]any{"error": "Invalid id"})
+		return
+	}
+	entry := mcpLog.Get(id)
+	if entry == nil {
+		respondJSON(w, 404, map[string]any{"error": "Not found"})
+		return
+	}
+	respondJSON(w, 200, map[string]any{"ok": true, "entry": entry})
+}
+
+// handleAPILogsClear wipes all stored log entries.
+func (ws *WebHTTPServer) handleAPILogsClear(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	mcpLog.Clear()
+	respondJSON(w, 200, map[string]any{"ok": true})
 }

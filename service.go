@@ -11,6 +11,15 @@ import (
 	"strings"
 )
 
+// ColumnSchema describes a single column of a query result as reported by
+// 1C MCP when IncludeSchema=true is requested.
+type ColumnSchema struct {
+	Name        string   `json:"name"`
+	Types       []string `json:"types,omitempty"`
+	Truncated   bool     `json:"truncated,omitempty"`
+	TypesTotal  int      `json:"types_total,omitempty"`
+}
+
 // TrustedSession holds all data for a single query session.
 type TrustedSession struct {
 	SessionID        string            `json:"session_id"`
@@ -30,6 +39,13 @@ type TrustedSession struct {
 	AnalysisDisplay  string            `json:"analysis_display"`
 	CodeText         string            `json:"code_text,omitempty"`     // BSL code (for execute_code)
 	MaskedResult     string            `json:"masked_result,omitempty"` // NER-masked free text result
+
+	// Column schema from 1C (IncludeSchema). Populated by the schema-aware
+	// parser; empty when the backend returned plain TSV or no schema.
+	ColumnSchemas   []ColumnSchema    `json:"column_schemas,omitempty"`
+	ColumnTypes     map[string][]string `json:"-"` // normalized column name → list of 1C types
+	ColumnTruncated map[string]bool     `json:"-"` // normalized column name → true when types list was truncated
+
 	cachedBundle     string            // cached MaskedBundle result
 }
 
@@ -62,8 +78,9 @@ func (s *TrustedSession) ClearSensitive() {
 
 // TrustedGatewayRuntime provides the business logic for query execution and analysis.
 type TrustedGatewayRuntime struct {
-	Config   *AppConfig
-	NerRules *NerRules // loaded from ner_rules.json, may be nil
+	Config     *AppConfig
+	NerRules   *NerRules // loaded from ner_rules.json, may be nil
+	TypePolicy *TypePolicy
 }
 
 // NewTrustedGatewayRuntime creates a new runtime with the given config.
@@ -72,6 +89,7 @@ func NewTrustedGatewayRuntime(config *AppConfig) *TrustedGatewayRuntime {
 	// Try to load NER rules from default path
 	rules, _ := LoadNerRules(NerRulesPath())
 	rt.NerRules = rules
+	rt.TypePolicy = NewDefaultTypePolicy()
 	return rt
 }
 
@@ -119,8 +137,9 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	}
 
 	args := map[string]any{
-		"QueryText": queryText,
-		"param":     []any{},
+		"QueryText":     queryText,
+		"param":         []any{},
+		"IncludeSchema": true,
 	}
 	if token != "" {
 		args["Key"] = token
@@ -141,8 +160,15 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 		return nil, fmt.Errorf("%s", strings.TrimSpace(result.Text))
 	}
 
-	rows := extractRows(result.Structured, result.Text)
-	columnOrder := extractColumnOrderFromJSON(result.Text)
+	// Try schema-aware JSON first; fall back to legacy extractRows/TSV.
+	rows, columnSchemas, schemaColumnOrder := extractRowsWithSchema(result.Text)
+	if rows == nil {
+		rows = extractRows(result.Structured, result.Text)
+	}
+	columnOrder := schemaColumnOrder
+	if columnOrder == nil {
+		columnOrder = extractColumnOrderFromJSON(result.Text)
+	}
 
 	const maxRows = 5000
 	totalParsedRows := len(rows)
@@ -157,6 +183,8 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	session.QueryText = queryText
 	session.Mode = mode
 	session.ColumnOrder = columnOrder
+	session.ColumnSchemas = columnSchemas
+	session.ColumnTypes, session.ColumnTruncated = buildColumnTypeMaps(columnSchemas)
 	session.RawResultPreview = result.Preview(rt.Config.Defaults.ResultPreviewChars)
 	session.ResultIsEmpty = len(rows) == 0
 	session.Diagnostic = map[string]any{
@@ -167,6 +195,7 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 		"total_parsed_rows": totalParsedRows,
 		"rows_truncated":    rowsTruncated,
 		"max_rows":          maxRows,
+		"has_schema":        len(columnSchemas) > 0,
 	}
 
 	if mode == "direct" {
@@ -179,6 +208,9 @@ func (rt *TrustedGatewayRuntime) ExecuteQuery(
 	if len(skipNumeric) > 0 && skipNumeric[0] {
 		sanitizer.skipNumeric = true
 	}
+	sanitizer.typePolicy = rt.TypePolicy
+	sanitizer.columnTypes = session.ColumnTypes
+	sanitizer.columnTruncated = session.ColumnTruncated
 	sanitized := sanitizer.SanitizeRows(rows, forceMaskFields, allowPlainFields)
 	session.DisplayRows = sanitized.DisplayRows
 	session.MaskedRows = sanitized.MaskedRows
@@ -517,6 +549,83 @@ func extractRows(structured any, rawText string) []map[string]any {
 	}
 
 	return nil
+}
+
+// extractRowsWithSchema parses the schema-aware JSON response from 1C MCP:
+//
+//	{ "version": 1, "columns": [{"name":"X","types":["Число"]}, ...], "rows": [...] }
+//
+// Returns (rows, columns, columnOrder) on success; nils on any failure so the
+// caller can fall back to the legacy text parser.
+func extractRowsWithSchema(rawText string) ([]map[string]any, []ColumnSchema, []string) {
+	text := strings.TrimSpace(rawText)
+	if text == "" || text[0] != '{' {
+		return nil, nil, nil
+	}
+
+	var envelope struct {
+		Version int            `json:"version"`
+		Columns []ColumnSchema `json:"columns"`
+		Rows    []any          `json:"rows"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		return nil, nil, nil
+	}
+	if len(envelope.Columns) == 0 {
+		return nil, nil, nil
+	}
+
+	columnOrder := make([]string, 0, len(envelope.Columns))
+	for _, c := range envelope.Columns {
+		columnOrder = append(columnOrder, c.Name)
+	}
+
+	rows := make([]map[string]any, 0, len(envelope.Rows))
+	for _, r := range envelope.Rows {
+		// Row may be either a map (keyed by column name) or an array aligned
+		// with columns[].
+		switch v := r.(type) {
+		case map[string]any:
+			rows = append(rows, v)
+		case []any:
+			row := make(map[string]any, len(columnOrder))
+			for i, name := range columnOrder {
+				if i < len(v) {
+					row[name] = v[i]
+				} else {
+					row[name] = ""
+				}
+			}
+			rows = append(rows, row)
+		}
+	}
+
+	return rows, envelope.Columns, columnOrder
+}
+
+// buildColumnTypeMaps indexes ColumnSchemas by normalized column name for
+// O(1) lookup during sanitization.
+func buildColumnTypeMaps(columns []ColumnSchema) (map[string][]string, map[string]bool) {
+	if len(columns) == 0 {
+		return nil, nil
+	}
+	types := make(map[string][]string, len(columns))
+	truncated := make(map[string]bool, len(columns))
+	for _, c := range columns {
+		if c.Name == "" {
+			continue
+		}
+		// Store under both normalized (lowercase) and original keys so
+		// lookup works regardless of which form the sanitizer holds.
+		normalized := normalizeFieldName(c.Name)
+		types[normalized] = c.Types
+		types[c.Name] = c.Types
+		if c.Truncated {
+			truncated[normalized] = true
+			truncated[c.Name] = true
+		}
+	}
+	return types, truncated
 }
 
 // parseTabularText parses tab-separated text into rows.

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,6 +56,7 @@ func main() {
 
 	// Use LaunchWeb which handles everything
 	savedToken := ""
+	savedTypePolicy := ""
 	var config *AppConfig
 
 	if HasSavedSettings() {
@@ -65,6 +67,9 @@ func main() {
 				if tok, ok := authMap["token"].(string); ok {
 					savedToken = tok
 				}
+			}
+			if tp, ok := settingsData["type_policy"].(string); ok {
+				savedTypePolicy = tp
 			}
 		}
 	}
@@ -80,6 +85,18 @@ func main() {
 	app = NewTrustedWebApp(config, savedToken)
 	app.AutoSendToAgent = config.Defaults.AutoSendToAgent
 	app.SkipNumericValues = config.Defaults.SkipNumericValues
+	if savedTypePolicy != "" {
+		// Validate: only accept a well-formed PersistedTypePolicy JSON. Older
+		// broken builds wrote fmt.Sprintf("%v", map) garbage here; refuse to
+		// propagate it — otherwise HandleSaveSettings would re-persist it.
+		var probe PersistedTypePolicy
+		if json.Unmarshal([]byte(savedTypePolicy), &probe) == nil {
+			app.PersistentTypePolicy = savedTypePolicy
+			tp := NewDefaultTypePolicy()
+			tp.MergePersisted(savedTypePolicy)
+			app.Runtime.TypePolicy = tp
+		}
+	}
 
 	// Start HTTP server
 	host := DefaultWebHost

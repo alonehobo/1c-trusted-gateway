@@ -39,6 +39,13 @@ type DataSanitizer struct {
 	aliasLength      int
 	allowKeywords    []string // substrings to match in field names for allow-list
 	skipNumeric      bool     // when true, values that look like real numbers (prices, amounts) pass through unmasked
+
+	// Type-aware masking: when typePolicy is non-nil the sanitizer consults
+	// it (using columnTypes/columnTruncated) before falling back to the
+	// name-based whitelist. See design.md layer 5.
+	typePolicy      *TypePolicy
+	columnTypes     map[string][]string
+	columnTruncated map[string]bool
 }
 
 // NewDataSanitizer creates a new sanitizer.
@@ -137,6 +144,36 @@ func (ds *DataSanitizer) maskValue(
 	// Force-mask always wins
 	if forceMask[normalizedName] {
 		return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
+	}
+
+	// Type-aware masking (layer 5): when column schema is known, consult the
+	// TypePolicy before name-based rules. A decisive plain/mask verdict here
+	// wins over the name-based allow/deny lists so that the user's type
+	// policy is the authoritative source.
+	if ds.typePolicy != nil {
+		var types []string
+		truncated := false
+		if ds.columnTypes != nil {
+			if t, ok := ds.columnTypes[fieldName]; ok {
+				types = t
+			} else if t, ok := ds.columnTypes[normalizedName]; ok {
+				types = t
+			}
+		}
+		if ds.columnTruncated != nil {
+			if v, ok := ds.columnTruncated[fieldName]; ok {
+				truncated = v
+			} else if v, ok := ds.columnTruncated[normalizedName]; ok {
+				truncated = v
+			}
+		}
+		switch ds.typePolicy.Decide(types, truncated) {
+		case TypeDecisionPlain:
+			return value
+		case TypeDecisionMask:
+			return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
+		}
+		// Unknown → fall through to name-based rules (legacy behavior).
 	}
 
 	// Explicit allow-plain from user

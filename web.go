@@ -52,6 +52,7 @@ type TrustedWebApp struct {
 	AllowPlainFields       string // per-query tag overrides (reset on each new query)
 	PersistentForceMask    string // persistent UI whitelist — never reset by queries
 	PersistentAllowPlain   string // persistent UI whitelist — never reset by queries
+	PersistentTypePolicy   string // JSON-encoded PersistedTypePolicy overrides (see type_policy.go)
 	ExcludedFields         string // comma-separated list of columns to exclude before masking
 	ActiveTab       string
 	PlaceholderText string
@@ -242,8 +243,10 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"suggested_fields":       app.SuggestedFields,
 		"agent_waiting_approval": app.suggestDone != nil,
 		"excluded_fields":        app.ExcludedFields,
-		"persistent_allow_plain": app.PersistentAllowPlain,
-		"persistent_force_mask":  app.PersistentForceMask,
+		"persistent_allow_plain":   app.PersistentAllowPlain,
+		"persistent_force_mask":    app.PersistentForceMask,
+		"persistent_type_policy":   app.PersistentTypePolicy,
+		"type_policy_effective":    app.Runtime.TypePolicy.Snapshot(),
 		"auto_send_to_agent":     app.AutoSendToAgent,
 		"skip_numeric_values":    app.SkipNumericValues,
 		"approval_pending":       false,
@@ -402,6 +405,13 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 		},
 	}
 
+	// Preserve type_policy on disk — otherwise saving general settings
+	// silently wipes the user's type-aware masking policy (main.go reads
+	// this key on startup to restore PersistentTypePolicy).
+	if strings.TrimSpace(app.PersistentTypePolicy) != "" {
+		settings["type_policy"] = app.PersistentTypePolicy
+	}
+
 	if err := SaveSettings(settings); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
@@ -409,6 +419,7 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 	newConfig := ConfigFromDict(settings)
 	app.Config = newConfig
 	app.Runtime = NewTrustedGatewayRuntime(newConfig)
+	app.reapplyPersistentTypePolicyLocked()
 	app.ConnectedURL = newConfig.Mcp.URL
 	app.AutoSendToAgent = newConfig.Defaults.AutoSendToAgent
 	app.SkipNumericValues = newConfig.Defaults.SkipNumericValues
@@ -477,12 +488,25 @@ func (app *TrustedWebApp) HandleImportSettings(data map[string]any) map[string]a
 			token = t
 		}
 	}
+	// Preserve type_policy on disk on import too. If the import file carries
+	// its own type_policy — respect it; otherwise fall back to current.
+	if _, ok := settings["type_policy"]; !ok {
+		if strings.TrimSpace(app.PersistentTypePolicy) != "" {
+			settings["type_policy"] = app.PersistentTypePolicy
+		}
+	}
 	if err := SaveSettings(settings); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}
 	}
 	newConfig := ConfigFromDict(settings)
 	app.Config = newConfig
 	app.Runtime = NewTrustedGatewayRuntime(newConfig)
+	// If imported settings carried a type_policy, adopt it as persistent;
+	// otherwise reapply the previous one.
+	if tp, ok := settings["type_policy"].(string); ok {
+		app.PersistentTypePolicy = tp
+	}
+	app.reapplyPersistentTypePolicyLocked()
 	app.ConnectedURL = newConfig.Mcp.URL
 	app.AutoSendToAgent = newConfig.Defaults.AutoSendToAgent
 	app.SkipNumericValues = newConfig.Defaults.SkipNumericValues
@@ -506,6 +530,12 @@ func (app *TrustedWebApp) HandleQuery(data map[string]any) map[string]any {
 	app.ForceMaskFields = forceMask
 	app.AllowPlainFields = allowPlain
 	app.mu.Unlock()
+
+	// Strip ПРЕДСТАВЛЕНИЕ()/PRESENTATION() and normalize aliases (symmetric
+	// with MCP path) so UI-initiated queries participate in type-aware masking.
+	queryText = stripPresentationCalls(queryText)
+	queryText = normalizeQueryAliases(queryText)
+
 	return app.bridgeRunQuery(task, queryText, mode, false)
 }
 
@@ -514,6 +544,85 @@ func (app *TrustedWebApp) HandleSetWhitelist(forceMask, allowPlain string) map[s
 	app.mu.Lock()
 	app.PersistentForceMask = forceMask
 	app.PersistentAllowPlain = allowPlain
+	app.notify()
+
+	session := app.CurrentSession
+	if session == nil {
+		app.mu.Unlock()
+		return map[string]any{"ok": true}
+	}
+	app.remaskLocked(session)
+	app.mu.Unlock()
+	return map[string]any{"ok": true}
+}
+
+// reapplyPersistentTypePolicyLocked re-merges app.PersistentTypePolicy onto
+// app.Runtime.TypePolicy. Must be called after any assignment of a fresh
+// Runtime (NewTrustedGatewayRuntime) inside a locked section, otherwise the
+// user's custom type-policy overrides get silently lost until app restart.
+// Caller must hold app.mu.
+func (app *TrustedWebApp) reapplyPersistentTypePolicyLocked() {
+	if app.Runtime == nil || app.Runtime.TypePolicy == nil {
+		return
+	}
+	if strings.TrimSpace(app.PersistentTypePolicy) == "" {
+		return
+	}
+	app.Runtime.TypePolicy.MergePersisted(app.PersistentTypePolicy)
+}
+
+// HandleSetTypePolicy persists the type-aware masking policy override (JSON
+// string matching PersistedTypePolicy) and rebuilds the runtime TypePolicy,
+// then remasks the current session.
+func (app *TrustedWebApp) HandleSetTypePolicy(policyJSON string) map[string]any {
+	// Validate: empty is allowed (resets to defaults).
+	policyJSON = strings.TrimSpace(policyJSON)
+
+	app.mu.Lock()
+	app.PersistentTypePolicy = policyJSON
+	// Rebuild the shared TypePolicy so new queries and remasks honor the change.
+	newPolicy := NewDefaultTypePolicy()
+	newPolicy.MergePersisted(policyJSON)
+	app.Runtime.TypePolicy = newPolicy
+
+	// Persist alongside other settings so the override survives restarts.
+	// If settings.bin doesn't exist yet (no main settings saved), we build a
+	// minimal settings dict from the current in-memory config so the type
+	// policy is still persisted. Without this, HandleSetTypePolicy silently
+	// no-ops on disk and the policy vanishes on restart.
+	savedSettings, _ := LoadSettings()
+	if savedSettings == nil {
+		savedSettings = map[string]any{
+			"mcp": map[string]any{
+				"url":                      app.Config.Mcp.URL,
+				"timeout_seconds":          app.Config.Mcp.TimeoutSeconds,
+				"sse_read_timeout_seconds": app.Config.Mcp.SSEReadTimeoutSeconds,
+				"tools":                    app.Config.Mcp.Tools,
+			},
+			"privacy": map[string]any{
+				"salt":                       app.Config.Privacy.Salt,
+				"salt_env":                   app.Config.Privacy.SaltEnv,
+				"alias_length":               app.Config.Privacy.AliasLength,
+				"numeric_threshold":          app.Config.Privacy.NumericThreshold,
+				"show_masked_data_in_viewer": app.Config.Privacy.ShowMaskedDataInViewer,
+			},
+			"defaults": map[string]any{
+				"result_preview_chars": app.Config.Defaults.ResultPreviewChars,
+				"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
+				"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
+				"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
+				"force_mask_fields":    app.Config.Defaults.ForceMaskFields,
+			},
+			"auth": map[string]any{
+				"token": app.ConnectedToken,
+			},
+		}
+	}
+	savedSettings["type_policy"] = policyJSON
+	if err := SaveSettings(savedSettings); err == nil {
+		app.HasSavedSettings = true
+	}
+
 	app.notify()
 
 	session := app.CurrentSession
@@ -636,6 +745,9 @@ func (app *TrustedWebApp) remaskLocked(session *TrustedSession) {
 
 	sanitizer := app.Runtime.runtimeSanitizer(app.ConnectedToken)
 	sanitizer.skipNumeric = app.SkipNumericValues
+	sanitizer.typePolicy = app.Runtime.TypePolicy
+	sanitizer.columnTypes = session.ColumnTypes
+	sanitizer.columnTruncated = session.ColumnTruncated
 	sanitized := sanitizer.SanitizeRows(rows, app.mergedForceMask(), app.mergedAllowPlain())
 
 	session.MaskedRows = sanitized.MaskedRows

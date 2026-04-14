@@ -132,3 +132,106 @@ func TestNormalizeQueryAliases(t *testing.T) {
 		})
 	}
 }
+
+func TestStripPresentationCalls(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "ПРЕДСТАВЛЕНИЕ на простом поле",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(Т.Поле) КАК П ИЗ Т",
+			want:  "ВЫБРАТЬ Т.Поле КАК П ИЗ Т",
+		},
+		{
+			name:  "ПРЕДСТАВЛЕНИЕССЫЛКИ на ссылку",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕССЫЛКИ(Т.Ссылка) ИЗ Т",
+			want:  "ВЫБРАТЬ Т.Ссылка ИЗ Т",
+		},
+		{
+			name:  "PRESENTATION english",
+			input: "SELECT PRESENTATION(T.Field) FROM T",
+			want:  "SELECT T.Field FROM T",
+		},
+		{
+			name:  "REFPRESENTATION english",
+			input: "SELECT REFPRESENTATION(T.Ref) FROM T",
+			want:  "SELECT T.Ref FROM T",
+		},
+		{
+			name:  "аргумент с ВЫБОР",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(ВЫБОР КОГДА А ТОГДА Б ИНАЧЕ В КОНЕЦ) ИЗ Т",
+			want:  "ВЫБРАТЬ ВЫБОР КОГДА А ТОГДА Б ИНАЧЕ В КОНЕЦ ИЗ Т",
+		},
+		{
+			name:  "вложенный ПРЕДСТАВЛЕНИЕ(ПРЕДСТАВЛЕНИЕ(X))",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(ПРЕДСТАВЛЕНИЕ(X)) ИЗ Т",
+			want:  "ВЫБРАТЬ X ИЗ Т",
+		},
+		{
+			name:  "строковый литерал с ПРЕДСТАВЛЕНИЕ не трогать",
+			input: "ВЫБРАТЬ Поле ИЗ Т ГДЕ Наименование = \"ПРЕДСТАВЛЕНИЕ(X)\"",
+			want:  "ВЫБРАТЬ Поле ИЗ Т ГДЕ Наименование = \"ПРЕДСТАВЛЕНИЕ(X)\"",
+		},
+		{
+			name:  "строковый литерал с \"\"-экранированием",
+			input: "ВЫБРАТЬ \"a\"\"b\" КАК П, ПРЕДСТАВЛЕНИЕ(Т.Поле) ИЗ Т",
+			want:  "ВЫБРАТЬ \"a\"\"b\" КАК П, Т.Поле ИЗ Т",
+		},
+		{
+			name:  "комментарий // с ПРЕДСТАВЛЕНИЕ не трогать",
+			input: "ВЫБРАТЬ Поле ИЗ Т // ПРЕДСТАВЛЕНИЕ(X)\nГДЕ 1=1",
+			want:  "ВЫБРАТЬ Поле ИЗ Т // ПРЕДСТАВЛЕНИЕ(X)\nГДЕ 1=1",
+		},
+		{
+			name:  "идентификатор Представление без ( не трогать",
+			input: "ВЫБРАТЬ Представление КАК П ИЗ Т",
+			want:  "ВЫБРАТЬ Представление КАК П ИЗ Т",
+		},
+		{
+			name:  "несколько вызовов подряд",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(А), ПРЕДСТАВЛЕНИЕ(Б) ИЗ Т",
+			want:  "ВЫБРАТЬ А, Б ИЗ Т",
+		},
+		{
+			name:  "регистронезависимо",
+			input: "ВЫБРАТЬ представление(А), PrEsEnTaTiOn(Б) ИЗ Т",
+			want:  "ВЫБРАТЬ А, Б ИЗ Т",
+		},
+		{
+			name:  "аргумент с вложенной функцией",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(ЕСТЬNULL(Т.Поле, \"\")) ИЗ Т",
+			want:  "ВЫБРАТЬ ЕСТЬNULL(Т.Поле, \"\") ИЗ Т",
+		},
+		{
+			name:  "без вызовов — не меняем",
+			input: "ВЫБРАТЬ Т.Поле ИЗ Т",
+			want:  "ВЫБРАТЬ Т.Поле ИЗ Т",
+		},
+		{
+			name:  "пробел перед скобкой",
+			input: "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ (Т.Поле) ИЗ Т",
+			want:  "ВЫБРАТЬ Т.Поле ИЗ Т",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripPresentationCalls(tt.input)
+			if got != tt.want {
+				t.Errorf("\n  got:  %s\n  want: %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripPresentationThenNormalize(t *testing.T) {
+	// Combined pipeline: strip first, then normalize aliases.
+	input := "ВЫБРАТЬ ПРЕДСТАВЛЕНИЕ(Т.Регистратор) КАК РегПредст ИЗ РегистрНакопления.Т КАК Т"
+	want := "ВЫБРАТЬ Т.Регистратор КАК ТРегистратор ИЗ РегистрНакопления.Т КАК Т"
+	got := normalizeQueryAliases(stripPresentationCalls(input))
+	if got != want {
+		t.Errorf("\n  got:  %s\n  want: %s", got, want)
+	}
+}
