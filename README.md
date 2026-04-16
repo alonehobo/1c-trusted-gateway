@@ -214,3 +214,9 @@ trusted-gateway-go/
 └── releases/
     └── MCP_Сервер.cfe   # Расширение 1С для MCP-сервиса
 ```
+
+---
+
+## Благодарность
+
+- [ROCTUP](https://github.com/ROCTUP/1c-mcp-toolkit) — за проект `1c-mcp-toolkit`.
