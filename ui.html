@@ -12,7 +12,7 @@
 :root { --radius: 12px; --radius-sm: 8px; --radius-xs: 6px; --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 
 body.theme-dark {
-  --bg-0: #0c0d10; --bg-1: #141519; --bg-2: #1c1d24; --bg-3: #25262e;
+  --bg-0: #0c0d10; --bg-1: #141519; --bg-2: #1c1d24; --bg-3: #25262e; --bg-panel: #1c1d24;
   --surface: rgba(255,255,255,0.04); --surface-hover: rgba(255,255,255,0.07);
   --surface-active: rgba(255,255,255,0.10);
   --border: rgba(255,255,255,0.08); --border-subtle: rgba(255,255,255,0.05);
@@ -32,7 +32,7 @@ body.theme-dark {
 }
 
 body.theme-light {
-  --bg-0: #f8f9fb; --bg-1: #ffffff; --bg-2: #f3f4f6; --bg-3: #e8eaed;
+  --bg-0: #f8f9fb; --bg-1: #ffffff; --bg-2: #f3f4f6; --bg-3: #e8eaed; --bg-panel: #ffffff;
   --surface: rgba(0,0,0,0.02); --surface-hover: rgba(0,0,0,0.04);
   --surface-active: rgba(0,0,0,0.06);
   --border: rgba(0,0,0,0.08); --border-subtle: rgba(0,0,0,0.05);
@@ -2523,11 +2523,16 @@ async function clearAllowPlain() {
 }
 
 async function saveAllowPlainAsDefault() {
-  const allowPlain = document.getElementById("allow-plain").value.trim();
   try {
-    // Pull current settings to preserve everything else.
     const s = await api("/api/settings");
-    const payload = { ...s, defaults_allow_plain_fields: allowPlain, mcp_token: "" };
+    const existing = (s.defaults_allow_plain_fields || "").split(",").map(f => f.trim()).filter(Boolean);
+    const current = mergedAllowPlain().split(",").map(f => f.trim()).filter(Boolean);
+    // Build case-preserving union: current takes precedence for casing
+    const caseMap = new Map();
+    existing.forEach(f => caseMap.set(f.toLowerCase(), f));
+    current.forEach(f => caseMap.set(f.toLowerCase(), f));
+    const merged = [...caseMap.values()].join(", ");
+    const payload = { ...s, defaults_allow_plain_fields: merged, mcp_token: "" };
     const r = await api("/api/settings", payload);
     if (r.ok) toast("\u2705 Список сохранён в постоянные настройки");
     else toast("Ошибка: " + (r.error || "?"));
@@ -2537,16 +2542,24 @@ async function saveAllowPlainAsDefault() {
 async function allowField(fieldName) {
   tagAllowSet.add(fieldName);
   tagForceSet.delete(fieldName);
+  // Flush into textareas so the user sees the change and "В настройки" picks it up
+  const apEl = document.getElementById("allow-plain");
+  apEl.value = mergedAllowPlain();
+  tagAllowSet.clear();
+  const fmEl = document.getElementById("force-mask");
+  const fmLc = fieldName.toLowerCase();
+  const fmFiltered = fmEl.value.split(",").map(s => s.trim()).filter(s => s && s.toLowerCase() !== fmLc);
+  fmEl.value = fmFiltered.join(", ");
+  updateAllowPlainHighlight();
   try {
-    const r = await api("/api/remask", {
-      force_mask_fields: mergedForceMask(),
-      allow_plain_fields: mergedAllowPlain()
+    const r = await api("/api/set_whitelist", {
+      allow_plain_fields: apEl.value,
+      force_mask_fields: fmEl.value
     });
     if (r.ok) {
       toast("\u2705 " + fieldName + " добавлено в белый список");
       flashTag(fieldName, "open");
     } else toast(r.error || "Перезапустите запрос.");
-    updateAllowPlainHighlight();
   } catch (e) {
     toast("Ошибка: " + e.message);
   }
@@ -2555,16 +2568,24 @@ async function allowField(fieldName) {
 async function reMaskField(fieldName) {
   tagForceSet.add(fieldName);
   tagAllowSet.delete(fieldName);
+  // Flush into textareas so the user sees the change
+  const apEl = document.getElementById("allow-plain");
+  const apLc = fieldName.toLowerCase();
+  const apFiltered = apEl.value.split(",").map(s => s.trim()).filter(s => s && s.toLowerCase() !== apLc);
+  apEl.value = apFiltered.join(", ");
+  const fmEl = document.getElementById("force-mask");
+  fmEl.value = mergedForceMask();
+  tagForceSet.clear();
+  updateAllowPlainHighlight();
   try {
-    const r = await api("/api/remask", {
-      force_mask_fields: mergedForceMask(),
-      allow_plain_fields: mergedAllowPlain()
+    const r = await api("/api/set_whitelist", {
+      allow_plain_fields: apEl.value,
+      force_mask_fields: fmEl.value
     });
     if (r.ok) {
       toast("\u{1f512} " + fieldName + " зашифровано");
       flashTag(fieldName, "mask");
     } else toast(r.error || "Ошибка ремаскировки");
-    updateAllowPlainHighlight();
   } catch (e) {
     toast("Ошибка: " + e.message);
   }

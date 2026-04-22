@@ -8,6 +8,8 @@ docs/
 # IDE local settings
 .claude/settings.local.json
 .cursor/rules/
+AGENTS.md
+CLAUDE.md
 
 # Build directories
 dist/

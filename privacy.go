@@ -146,10 +146,13 @@ func (ds *DataSanitizer) maskValue(
 		return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
 	}
 
-	// Type-aware masking (layer 5): when column schema is known, consult the
-	// TypePolicy before name-based rules. A decisive plain/mask verdict here
-	// wins over the name-based allow/deny lists so that the user's type
-	// policy is the authoritative source.
+	// Explicit allow-plain from user wins over TypePolicy
+	if allowPlain[normalizedName] {
+		return value
+	}
+
+	// Type-aware masking: when column schema is known, consult the TypePolicy.
+	// Runs after user's explicit whitelist so that allowPlain always takes effect.
 	if ds.typePolicy != nil {
 		var types []string
 		truncated := false
@@ -174,11 +177,6 @@ func (ds *DataSanitizer) maskValue(
 			return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
 		}
 		// Unknown → fall through to name-based rules (legacy behavior).
-	}
-
-	// Explicit allow-plain from user
-	if allowPlain[normalizedName] {
-		return value
 	}
 
 	// Check built-in allow keywords (Количество, Цена, Сумма, НДС)
