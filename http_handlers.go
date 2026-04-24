@@ -26,6 +26,13 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ws.handleRoot)
 	mux.HandleFunc("/favicon.ico", ws.handleFavicon)
+	mux.HandleFunc("/ui.css", ws.handleUICSS)
+	mux.HandleFunc("/ui_core.js", ws.handleUICoreJS)
+	mux.HandleFunc("/ui_results.js", ws.handleUIResultsJS)
+	mux.HandleFunc("/ui_actions.js", ws.handleUIActionsJS)
+	mux.HandleFunc("/ui_settings.js", ws.handleUISettingsJS)
+	mux.HandleFunc("/ui_onboarding.js", ws.handleUIOnboardingJS)
+	mux.HandleFunc("/ui_editor.js", ws.handleUIEditorJS)
 	mux.HandleFunc("/api/state", ws.handleAPIState)
 	mux.HandleFunc("/api/rows", ws.handleAPIRows)
 	mux.HandleFunc("/api/events", ws.handleAPIEvents)
@@ -117,6 +124,20 @@ func respondHTML(w http.ResponseWriter, status int, html string) {
 	w.Write([]byte(html))
 }
 
+func respondCSS(w http.ResponseWriter, status int, css string) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	w.Write([]byte(css))
+}
+
+func respondJavaScript(w http.ResponseWriter, status int, js string) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	w.Write([]byte(js))
+}
+
 func (ws *WebHTTPServer) readJSON(r *http.Request) (map[string]any, error) {
 	if r.ContentLength > maxRequestBody {
 		return nil, fmt.Errorf("request body too large")
@@ -166,6 +187,62 @@ func (ws *WebHTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	html := RenderAppHTML(ws.App.SessionToken)
 	respondHTML(w, 200, html)
+}
+
+func (ws *WebHTTPServer) handleUICSS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondCSS(w, 200, uiCSS)
+}
+
+func (ws *WebHTTPServer) handleUICoreJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, RenderUICoreJS(ws.App.SessionToken))
+}
+
+func (ws *WebHTTPServer) handleUIResultsJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, uiResultsJS)
+}
+
+func (ws *WebHTTPServer) handleUIActionsJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, uiActionsJS)
+}
+
+func (ws *WebHTTPServer) handleUISettingsJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, uiSettingsJS)
+}
+
+func (ws *WebHTTPServer) handleUIOnboardingJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, uiOnboardingJS)
+}
+
+func (ws *WebHTTPServer) handleUIEditorJS(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	respondJavaScript(w, 200, uiEditorJS)
 }
 
 func (ws *WebHTTPServer) handleAPIState(w http.ResponseWriter, r *http.Request) {

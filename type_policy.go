@@ -33,7 +33,7 @@ func (d TypePolicyDecision) String() string {
 //
 // A type is either:
 //   - an exact name: "Справочник.Валюты", "Число", "Перечисление.ВидыДвижения"
-//   - a prefix ending with ".": "Перечисление.", "ПланСчетов."
+//   - a prefix ending with ".": "Перечисление.", "ПланСчетов.", "Документ."
 //
 // forcedMask always wins over plain matches.
 //
@@ -63,12 +63,12 @@ var stringBinaryDefaults = map[string]bool{
 // NewDefaultTypePolicy returns a policy with hardcoded defaults (see design.md).
 func NewDefaultTypePolicy() *TypePolicy {
 	tp := &TypePolicy{
-		plainExact:    make(map[string]bool),
-		plainPrefixes: nil,
-		forcedExact:   make(map[string]bool),
+		plainExact:     make(map[string]bool),
+		plainPrefixes:  nil,
+		forcedExact:    make(map[string]bool),
 		forcedPrefixes: nil,
 	}
-	// Plain prefixes — whole families of safe classifier-like objects.
+	// Plain prefixes — whole families of safe metadata objects.
 	// Имена типов берутся из MCP-сервиса 1С, который использует
 	// Метаданные.НайтиПоТипу().ПолноеИмя() — это форма БЕЗ "Ссылка".
 	// (см. mcp_ИнструментЗапросыКБазе/Ext/ManagerModule.bsl, СхемаКолонокТЗ).
@@ -78,6 +78,7 @@ func NewDefaultTypePolicy() *TypePolicy {
 		"Перечисление.",
 		"ПланСчетов.",
 		"ПланВидовХарактеристик.",
+		"Документ.",
 	}
 	// Plain exact — narrowly-safe reference catalogs.
 	for _, t := range []string{
@@ -104,9 +105,9 @@ func NewDefaultTypePolicy() *TypePolicy {
 
 // PersistedTypePolicy is the JSON shape saved in credential store.
 type PersistedTypePolicy struct {
-	PlainTypes      []string `json:"plain_types"`
-	PlainPrefixes   []string `json:"plain_prefixes"`
-	ForcedMaskTypes []string `json:"forced_mask_types"`
+	PlainTypes         []string `json:"plain_types"`
+	PlainPrefixes      []string `json:"plain_prefixes"`
+	ForcedMaskTypes    []string `json:"forced_mask_types"`
 	ForcedMaskPrefixes []string `json:"forced_mask_prefixes"`
 }
 
@@ -149,25 +150,25 @@ func (tp *TypePolicy) MergePersisted(persisted string) {
 // Decide classifies a column given its 1C types and truncation flag.
 //
 // Rules (see design.md):
-//  1. truncated == true → Mask (hidden types may be dangerous).
-//  2. types empty → Unknown (defer to name-based rules).
-//  3. Any type matches forcedMask (exact or prefix) → Mask.
-//  4. Per type:
+//  1. types empty → Unknown (defer to name-based rules).
+//  2. Any type matches forcedMask (exact or prefix) → Mask.
+//  3. Per type:
 //     - dotted ("Справочник.X", "Перечисление.X"): must match plainExact
-//       or plainPrefixes, otherwise the column is Masked.
+//     or plainPrefixes, otherwise the column is Masked.
 //     - dotless ("Число", "ВидДвиженияНакопления"): plain by default
-//       (platform-defined primitive or system enum), unless the type is in
-//       the free-text/binary blacklist (stringBinaryDefaults). User
-//       plainExact entries always win over the blacklist.
-//  5. All types resolve to plain → Plain. Otherwise → Mask.
+//     (platform-defined primitive or system enum), unless the type is in
+//     the free-text/binary blacklist (stringBinaryDefaults). User
+//     plainExact entries always win over the blacklist.
+//  4. All visible types resolve to plain → Plain. Otherwise → Mask.
 //
 // "Null"/"Неопределено" are treated as nullability markers, not real types,
 // and are stripped before classification (1C always appends "Null" to
 // composite-type columns such as ["Дата","Null"]).
+//
+// truncated currently does NOT force masking: for large composites like
+// Регистратор we classify by the visible type slice returned by 1C.
 func (tp *TypePolicy) Decide(types []string, truncated bool) TypePolicyDecision {
-	if truncated {
-		return TypeDecisionMask
-	}
+	_ = truncated
 	// Gather non-empty types, excluding nullability markers.
 	var effective []string
 	for _, t := range types {

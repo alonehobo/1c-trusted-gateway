@@ -21,12 +21,20 @@ var (
 	// DefaultAllowPlainKeywords is empty — all fields are masked by default.
 	// Users add fields to the white-list explicitly via UI or settings.
 	DefaultAllowPlainKeywords = []string{}
+
+	// defaultAllowPlainExactFields keeps a very small built-in exact-name allow
+	// list for common document requisites. Exact match only: "Номер" is safe,
+	// but "НомерПаспорта" must still stay masked.
+	defaultAllowPlainExactFields = map[string]bool{
+		"номер": true,
+		"дата":  true,
+	}
 )
 
 // SanitizedResult holds the result of data sanitization.
 type SanitizedResult struct {
-	MaskedRows      []map[string]any `json:"masked_rows"`
-	DisplayRows     []map[string]any `json:"display_rows"`
+	MaskedRows      []map[string]any  `json:"masked_rows"`
+	DisplayRows     []map[string]any  `json:"display_rows"`
 	AliasToOriginal map[string]string `json:"alias_to_original"`
 	MaskedColumns   []string          `json:"masked_columns"`
 	UnmaskedColumns []string          `json:"unmasked_columns"`
@@ -35,10 +43,10 @@ type SanitizedResult struct {
 // DataSanitizer masks sensitive data in query results.
 // Policy: mask ALL fields by default; only allow-listed fields pass through.
 type DataSanitizer struct {
-	salt             string
-	aliasLength      int
-	allowKeywords    []string // substrings to match in field names for allow-list
-	skipNumeric      bool     // when true, values that look like real numbers (prices, amounts) pass through unmasked
+	salt          string
+	aliasLength   int
+	allowKeywords []string // substrings to match in field names for allow-list
+	skipNumeric   bool     // when true, values that look like real numbers (prices, amounts) pass through unmasked
 
 	// Type-aware masking: when typePolicy is non-nil the sanitizer consults
 	// it (using columnTypes/columnTruncated) before falling back to the
@@ -146,8 +154,13 @@ func (ds *DataSanitizer) maskValue(
 		return ds.aliasFor(fieldName, value, originalToAlias, aliasToOriginal)
 	}
 
-	// Explicit allow-plain from user wins over TypePolicy
-	if allowPlain[normalizedName] {
+	// Explicit allow-plain from user wins over TypePolicy.
+	// Supports exact field names, "*suffix" and "prefix*" patterns.
+	if matchesExplicitAllowPlain(normalizedName, allowPlain) {
+		return value
+	}
+
+	if defaultAllowPlainExactFields[normalizedName] {
 		return value
 	}
 
@@ -420,6 +433,24 @@ func normalizeFieldSet(fields map[string]bool) map[string]bool {
 		normalized[normalizeFieldName(f)] = true
 	}
 	return normalized
+}
+
+func matchesExplicitAllowPlain(normalizedFieldName string, allowPlain map[string]bool) bool {
+	if allowPlain[normalizedFieldName] {
+		return true
+	}
+	for pattern := range allowPlain {
+		if len(pattern) <= 1 {
+			continue
+		}
+		if pattern[0] == '*' && strings.HasSuffix(normalizedFieldName, pattern[1:]) {
+			return true
+		}
+		if pattern[len(pattern)-1] == '*' && strings.HasPrefix(normalizedFieldName, pattern[:len(pattern)-1]) {
+			return true
+		}
+	}
+	return false
 }
 
 func valueEqual(a, b any) bool {

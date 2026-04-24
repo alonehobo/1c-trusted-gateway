@@ -11,12 +11,15 @@ func TestTypePolicyDecide(t *testing.T) {
 		truncated bool
 		want      TypePolicyDecision
 	}{
-		{"truncated всегда mask", []string{"Перечисление.ВидыДвижения"}, true, TypeDecisionMask},
+		{"truncated safe-типы не мешает plain", []string{"Перечисление.ВидыДвижения"}, true, TypeDecisionPlain},
+		{"truncated с видимым опасным типом → mask", []string{"Документ.РеализацияТоваровУслуг", "Справочник.Контрагенты"}, true, TypeDecisionMask},
+		{"truncated без видимых типов → unknown", nil, true, TypeDecisionUnknown},
 		{"пустой → unknown", nil, false, TypeDecisionUnknown},
 		{"пустые строки → unknown", []string{"", " "}, false, TypeDecisionUnknown},
 		{"Перечисление.* → plain (по префиксу)", []string{"Перечисление.ВидыДвижения"}, false, TypeDecisionPlain},
 		{"ПланСчетов.* → plain", []string{"ПланСчетов.Хозрасчетный"}, false, TypeDecisionPlain},
 		{"ПланВидовХарактеристик.* → plain", []string{"ПланВидовХарактеристик.ВидыСубконто"}, false, TypeDecisionPlain},
+		{"Документ.* → plain", []string{"Документ.РеализацияТоваровУслуг"}, false, TypeDecisionPlain},
 		{"Справочник.Валюты (exact) → plain", []string{"Справочник.Валюты"}, false, TypeDecisionPlain},
 		{"Справочник.Номенклатура → mask", []string{"Справочник.Номенклатура"}, false, TypeDecisionMask},
 		// Ссылочные формы (СправочникСсылка.*, ПеречислениеСсылка.*) в реальных
@@ -24,7 +27,6 @@ func TestTypePolicyDecide(t *testing.T) {
 		// заданы. Если вдруг придут — попадут под mask, как любой неизвестный тип.
 		{"ПеречислениеСсылка.* → mask (нет в default'ах)", []string{"ПеречислениеСсылка.ВидыДвижения"}, false, TypeDecisionMask},
 		{"СправочникСсылка.Валюты → mask (нет в default'ах)", []string{"СправочникСсылка.Валюты"}, false, TypeDecisionMask},
-		{"Документ.* → mask (не в plain)", []string{"Документ.РеализацияТоваровУслуг"}, false, TypeDecisionMask},
 		{"Число → plain (примитив)", []string{"Число"}, false, TypeDecisionPlain},
 		{"Number → plain (англ.)", []string{"Number"}, false, TypeDecisionPlain},
 		{"Дата → plain", []string{"Дата"}, false, TypeDecisionPlain},
@@ -45,7 +47,10 @@ func TestTypePolicyDecide(t *testing.T) {
 		// Композит: ВидДвижения + Null (1С добавляет Null к составным колонкам).
 		{"ВидДвиженияНакопления + Null → plain", []string{"ВидДвиженияНакопления", "Null"}, false, TypeDecisionPlain},
 		{"составной: все plain → plain", []string{"Перечисление.ВидыДвижения", "Число"}, false, TypeDecisionPlain},
+		{"составной: документы + plain-типы → plain", []string{"Документ.РеализацияТоваровУслуг", "Перечисление.ВидыДвижения", "Дата"}, false, TypeDecisionPlain},
+		{"составной: документы + plain-типы + truncated → plain", []string{"Документ.РеализацияТоваровУслуг", "Перечисление.ВидыДвижения", "Дата"}, true, TypeDecisionPlain},
 		{"составной: один опасный → mask", []string{"Перечисление.ВидыДвижения", "Справочник.Контрагенты"}, false, TypeDecisionMask},
+		{"составной: документы + опасный тип → mask", []string{"Документ.РеализацияТоваровУслуг", "Справочник.Контрагенты"}, false, TypeDecisionMask},
 		// 1C attaches "Null" to composite-type columns; it's a nullability
 		// marker, not a real type, and must be ignored during classification.
 		{"Дата + Null → plain (Null игнорируется)", []string{"Дата", "Null"}, false, TypeDecisionPlain},

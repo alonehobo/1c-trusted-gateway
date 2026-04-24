@@ -9,11 +9,12 @@ func TestSanitizerTypePolicyIntegration(t *testing.T) {
 
 	rows := []map[string]any{
 		{
-			"ВидДвижения":  "Приход",
-			"СчетДт":       "41.01",
-			"Контрагент":   "ООО Рога и Копыта",
-			"Период":       "2026-01-15",
-			"Сумма":        "12345.67",
+			"ВидДвижения":   "Приход",
+			"СчетДт":        "41.01",
+			"Регистратор":   "Реализация товаров и услуг 000123",
+			"Контрагент":    "ООО Рога и Копыта",
+			"Период":        "2026-01-15",
+			"Сумма":         "12345.67",
 			"Идентификатор": "abc-def-123",
 		},
 	}
@@ -22,6 +23,7 @@ func TestSanitizerTypePolicyIntegration(t *testing.T) {
 	columnTypes := map[string][]string{
 		"ВидДвижения":   {"Перечисление.ВидыДвижения"},
 		"СчетДт":        {"ПланСчетов.Хозрасчетный"},
+		"Регистратор":   {"Документ.РеализацияТоваровУслуг"},
 		"Контрагент":    {"Справочник.Контрагенты"},
 		"Период":        {"Дата"},
 		"Сумма":         {"Число"},
@@ -36,7 +38,7 @@ func TestSanitizerTypePolicyIntegration(t *testing.T) {
 	got := sanitized.MaskedRows[0]
 
 	// Enum / chart-of-accounts / Date / Number / UUID — plain.
-	for _, safeField := range []string{"ВидДвижения", "СчетДт", "Период", "Сумма", "Идентификатор"} {
+	for _, safeField := range []string{"ВидДвижения", "СчетДт", "Регистратор", "Период", "Сумма", "Идентификатор"} {
 		if got[safeField] != rows[0][safeField] {
 			t.Errorf("%s should be plain (got %v; want %v)",
 				safeField, got[safeField], rows[0][safeField])
@@ -48,8 +50,35 @@ func TestSanitizerTypePolicyIntegration(t *testing.T) {
 	}
 }
 
-// TestSanitizerTypePolicyTruncatedMasks — truncated schemas always mask.
-func TestSanitizerTypePolicyTruncatedMasks(t *testing.T) {
+func TestSanitizerDefaultExactPlainFields(t *testing.T) {
+	rows := []map[string]any{{
+		"Номер":         "000123",
+		"Дата":          "2026-01-15",
+		"НомерПаспорта": "1234 567890",
+		"ДатаРождения":  "1990-05-01",
+	}}
+
+	ds := NewDataSanitizer("salt", 8, 10)
+	sanitized := ds.SanitizeRows(rows, nil, nil)
+	got := sanitized.MaskedRows[0]
+
+	if got["Номер"] != rows[0]["Номер"] {
+		t.Fatalf("Номер should be plain by default; got %v", got["Номер"])
+	}
+	if got["Дата"] != rows[0]["Дата"] {
+		t.Fatalf("Дата should be plain by default; got %v", got["Дата"])
+	}
+	if got["НомерПаспорта"] == rows[0]["НомерПаспорта"] {
+		t.Fatalf("НомерПаспорта must stay masked")
+	}
+	if got["ДатаРождения"] == rows[0]["ДатаРождения"] {
+		t.Fatalf("ДатаРождения must stay masked")
+	}
+}
+
+// TestSanitizerTypePolicyTruncatedAllowsSafeTypes — truncated no longer forces
+// mask; visible safe types stay plain.
+func TestSanitizerTypePolicyTruncatedAllowsSafeTypes(t *testing.T) {
 	tp := NewDefaultTypePolicy()
 	rows := []map[string]any{{"X": "some value"}}
 	columnTypes := map[string][]string{"X": {"Перечисление.Одно"}}
@@ -61,8 +90,8 @@ func TestSanitizerTypePolicyTruncatedMasks(t *testing.T) {
 	ds.columnTruncated = truncated
 
 	sanitized := ds.SanitizeRows(rows, nil, nil)
-	if sanitized.MaskedRows[0]["X"] == rows[0]["X"] {
-		t.Errorf("truncated column must be masked; got plain")
+	if sanitized.MaskedRows[0]["X"] != rows[0]["X"] {
+		t.Errorf("truncated safe column should stay plain; got %v", sanitized.MaskedRows[0]["X"])
 	}
 }
 
@@ -91,6 +120,42 @@ func TestSanitizerTypePolicyUnknownFallsThrough(t *testing.T) {
 
 // TestSanitizerForceMaskBeatsTypePolicy — explicit force-mask wins over the
 // type policy's plain verdict.
+func TestSanitizerAllowPlainSupportsSuffixWildcard(t *testing.T) {
+	rows := []map[string]any{{
+		"ДокументРегистратор": "Реализация товаров",
+		"Контрагент":          "ООО Ромашка",
+	}}
+
+	ds := NewDataSanitizer("salt", 8, 10)
+	allow := map[string]bool{"*регистратор": true}
+	sanitized := ds.SanitizeRows(rows, nil, allow)
+
+	if sanitized.MaskedRows[0]["ДокументРегистратор"] != rows[0]["ДокументРегистратор"] {
+		t.Fatalf("suffix wildcard should allow plain value; got %v", sanitized.MaskedRows[0]["ДокументРегистратор"])
+	}
+	if sanitized.MaskedRows[0]["Контрагент"] == rows[0]["Контрагент"] {
+		t.Fatalf("non-matching field should stay masked")
+	}
+}
+
+func TestSanitizerAllowPlainSupportsPrefixWildcard(t *testing.T) {
+	rows := []map[string]any{{
+		"РегистраторДокумента": "Реализация товаров",
+		"Контрагент":           "ООО Ромашка",
+	}}
+
+	ds := NewDataSanitizer("salt", 8, 10)
+	allow := map[string]bool{"регистратор*": true}
+	sanitized := ds.SanitizeRows(rows, nil, allow)
+
+	if sanitized.MaskedRows[0]["РегистраторДокумента"] != rows[0]["РегистраторДокумента"] {
+		t.Fatalf("prefix wildcard should allow plain value; got %v", sanitized.MaskedRows[0]["РегистраторДокумента"])
+	}
+	if sanitized.MaskedRows[0]["Контрагент"] == rows[0]["Контрагент"] {
+		t.Fatalf("non-matching field should stay masked")
+	}
+}
+
 func TestSanitizerForceMaskBeatsTypePolicy(t *testing.T) {
 	tp := NewDefaultTypePolicy()
 	rows := []map[string]any{{"Сумма": "100"}}

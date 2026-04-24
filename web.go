@@ -22,48 +22,48 @@ const (
 
 // TrustedWebApp holds all application state and logic.
 type TrustedWebApp struct {
-	Config             *AppConfig
-	Runtime            *TrustedGatewayRuntime
-	CurrentSession     *TrustedSession
-	ConnectedURL       string
-	ConnectedToken     string
-	ConnectionVerified bool
-	HasSavedSettings   bool
-	ResultRows         []map[string]any
-	ResultHeaders      []string
-	ColumnOrder        []string
-	MaskedResultRows    []map[string]any
-	MaskedResultHeaders []string
-	MaskedColumns       []string
-	UnmaskedColumns     []string
-	PendingAgentNote    map[string]string
-	ThemeName       string
-	TaskText        string
-	StatusText      string
-	QueryState      string
-	QueryStateText  string
-	BundleText      string
-	AnalysisMasked  string
-	AnalysisDisplay string
-	QueryPreview    string
-	RawResponse     string
-	RawState        string
-	ForceMaskFields        string // per-query tag overrides (reset on each new query)
-	AllowPlainFields       string // per-query tag overrides (reset on each new query)
-	PersistentForceMask    string // persistent UI whitelist — never reset by queries
-	PersistentAllowPlain   string // persistent UI whitelist — never reset by queries
-	PersistentTypePolicy   string // JSON-encoded PersistedTypePolicy overrides (see type_policy.go)
-	ExcludedFields         string // comma-separated list of columns to exclude before masking
-	ActiveTab       string
-	PlaceholderText string
-	PlaceholderError bool
-	RowsTruncated   bool
-	MaxRows         int
-	TotalRowCount   int
+	Config               *AppConfig
+	Runtime              *TrustedGatewayRuntime
+	CurrentSession       *TrustedSession
+	ConnectedURL         string
+	ConnectedToken       string
+	ConnectionVerified   bool
+	HasSavedSettings     bool
+	ResultRows           []map[string]any
+	ResultHeaders        []string
+	ColumnOrder          []string
+	MaskedResultRows     []map[string]any
+	MaskedResultHeaders  []string
+	MaskedColumns        []string
+	UnmaskedColumns      []string
+	PendingAgentNote     map[string]string
+	ThemeName            string
+	TaskText             string
+	StatusText           string
+	QueryState           string
+	QueryStateText       string
+	BundleText           string
+	AnalysisMasked       string
+	AnalysisDisplay      string
+	QueryPreview         string
+	RawResponse          string
+	RawState             string
+	ForceMaskFields      string // per-query tag overrides (reset on each new query)
+	AllowPlainFields     string // per-query tag overrides (reset on each new query)
+	PersistentForceMask  string // persistent UI whitelist — never reset by queries
+	PersistentAllowPlain string // persistent UI whitelist — never reset by queries
+	PersistentTypePolicy string // JSON-encoded PersistedTypePolicy overrides (see type_policy.go)
+	ExcludedFields       string // comma-separated list of columns to exclude before masking
+	ActiveTab            string
+	PlaceholderText      string
+	PlaceholderError     bool
+	RowsTruncated        bool
+	MaxRows              int
+	TotalRowCount        int
 
 	SessionToken string
 
-	SuggestedFields []string     // fields suggested by agent for whitelisting
+	SuggestedFields []string      // fields suggested by agent for whitelisting
 	suggestDone     chan struct{} // signaled when all suggested fields are approved
 
 	AutoSendToAgent   bool
@@ -243,10 +243,10 @@ func (app *TrustedWebApp) GetState() map[string]any {
 		"suggested_fields":       app.SuggestedFields,
 		"agent_waiting_approval": app.suggestDone != nil,
 		"excluded_fields":        app.ExcludedFields,
-		"persistent_allow_plain":   app.PersistentAllowPlain,
-		"persistent_force_mask":    app.PersistentForceMask,
-		"persistent_type_policy":   app.PersistentTypePolicy,
-		"type_policy_effective":    app.Runtime.TypePolicy.Snapshot(),
+		"persistent_allow_plain": app.PersistentAllowPlain,
+		"persistent_force_mask":  app.PersistentForceMask,
+		"persistent_type_policy": app.PersistentTypePolicy,
+		"type_policy_effective":  app.Runtime.TypePolicy.Snapshot(),
 		"auto_send_to_agent":     app.AutoSendToAgent,
 		"skip_numeric_values":    app.SkipNumericValues,
 		"approval_pending":       false,
@@ -268,11 +268,11 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 	urlStr := strings.TrimSpace(getStringFieldDefault(data, "url", ""))
-	token := getStringFieldDefault(data, "token", "")
+	token := strings.TrimSpace(getStringFieldDefault(data, "token", ""))
 	useSaved, _ := data["use_saved_token"].(bool)
 
-	if useSaved && token == "" && app.ConnectedToken != "" {
-		token = app.ConnectedToken
+	if token == "" && (useSaved || app.ConnectedToken != "") {
+		token = strings.TrimSpace(app.ConnectedToken)
 	}
 	if urlStr == "" {
 		return map[string]any{"ok": false, "error": "URL is empty."}
@@ -395,13 +395,13 @@ func (app *TrustedWebApp) HandleSaveSettings(data map[string]any) map[string]any
 		},
 		"defaults": map[string]any{
 			"result_preview_chars": getIntField(data, "defaults_preview_chars", 4000),
-			"auto_send_to_agent":  getBoolField(data, "defaults_auto_send"),
-			"skip_numeric_values": getBoolField(data, "defaults_skip_numeric"),
-			"allow_plain_fields":  getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
-			"force_mask_fields":   getStringFieldDefault(data, "defaults_force_mask_fields", ""),
+			"auto_send_to_agent":   getBoolField(data, "defaults_auto_send"),
+			"skip_numeric_values":  getBoolField(data, "defaults_skip_numeric"),
+			"allow_plain_fields":   getStringFieldDefault(data, "defaults_allow_plain_fields", ""),
+			"force_mask_fields":    getStringFieldDefault(data, "defaults_force_mask_fields", ""),
 		},
 		"auth": map[string]any{
-			"token": firstNonEmpty(getStringFieldDefault(data, "mcp_token", ""), app.ConnectedToken),
+			"token": firstNonEmpty(strings.TrimSpace(getStringFieldDefault(data, "mcp_token", "")), strings.TrimSpace(app.ConnectedToken)),
 		},
 	}
 
@@ -469,10 +469,10 @@ func (app *TrustedWebApp) HandleExportSettings() map[string]any {
 		},
 		"defaults": map[string]any{
 			"result_preview_chars": app.Config.Defaults.ResultPreviewChars,
-			"auto_send_to_agent":  app.Config.Defaults.AutoSendToAgent,
-			"skip_numeric_values": app.Config.Defaults.SkipNumericValues,
-			"allow_plain_fields":  app.Config.Defaults.AllowPlainFields,
-			"force_mask_fields":   app.Config.Defaults.ForceMaskFields,
+			"auto_send_to_agent":   app.Config.Defaults.AutoSendToAgent,
+			"skip_numeric_values":  app.Config.Defaults.SkipNumericValues,
+			"allow_plain_fields":   app.Config.Defaults.AllowPlainFields,
+			"force_mask_fields":    app.Config.Defaults.ForceMaskFields,
 		},
 	}
 }
