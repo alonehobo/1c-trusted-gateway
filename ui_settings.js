@@ -392,8 +392,8 @@ function ftRenderTable() {
     html += '<tr>' +
       '<td>' + escapeHtml(f.name) + '</td>' +
       '<td class="ft-actions">' +
-        '<span class="ft-type ' + typeCls + '" style="cursor:pointer" onclick="ftToggle(\'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Нажмите для переключения">' + typeLabel + '</span>' +
-        ' <button class="ft-del" onclick="ftRemove(\'' + escapeHtml(f.name).replace(/'/g, "\\'") + '\')" title="Удалить">\u00D7</button>' +
+        '<span class="ft-type ' + typeCls + '" style="cursor:pointer" onclick="ftToggle(\'' + escapeHtml(f.name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")) + '\')" title="Нажмите для переключения">' + typeLabel + '</span>' +
+        ' <button class="ft-del" onclick="ftRemove(\'' + escapeHtml(f.name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")) + '\')" title="Удалить">\u00D7</button>' +
       '</td>' +
       '</tr>';
   });

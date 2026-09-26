@@ -636,7 +636,16 @@ function renderMarkdownPanel(id, text) {
   if (!el) return;
   el.dataset.rawText = text;
   if (text && typeof marked !== "undefined") {
-    el.innerHTML = marked.parse(text);
+    const tpl = document.createElement("template");
+    tpl.innerHTML = marked.parse(text);
+    tpl.content.querySelectorAll("script,iframe,object,embed,style,link,meta,form,base").forEach(n => n.remove());
+    tpl.content.querySelectorAll("*").forEach(n => {
+      for (const a of Array.from(n.attributes)) {
+        const v = a.value.replace(/[\s\x00-\x1f]/g, "").toLowerCase();
+        if (a.name.startsWith("on") || ((a.name === "href" || a.name === "src" || a.name === "xlink:href") && /^(javascript|vbscript|data):/.test(v) && !/^data:image\//.test(v))) n.removeAttribute(a.name);
+      }
+    });
+    el.replaceChildren(tpl.content);
     el.classList.add("md-rendered");
   } else {
     el.textContent = text;
