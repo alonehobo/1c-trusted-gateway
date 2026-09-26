@@ -26,13 +26,18 @@ func NewWebHTTPServer(host string, port int, app *TrustedWebApp) *WebHTTPServer 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ws.handleRoot)
 	mux.HandleFunc("/favicon.ico", ws.handleFavicon)
-	mux.HandleFunc("/ui.css", ws.handleUICSS)
-	mux.HandleFunc("/ui_core.js", ws.handleUICoreJS)
-	mux.HandleFunc("/ui_results.js", ws.handleUIResultsJS)
-	mux.HandleFunc("/ui_actions.js", ws.handleUIActionsJS)
-	mux.HandleFunc("/ui_settings.js", ws.handleUISettingsJS)
-	mux.HandleFunc("/ui_onboarding.js", ws.handleUIOnboardingJS)
-	mux.HandleFunc("/ui_editor.js", ws.handleUIEditorJS)
+	mux.HandleFunc("/ui.css", ws.serveAsset("text/css; charset=utf-8", func() string { return uiCSS }))
+	for path, body := range map[string]string{
+		"/ui_results.js":    uiResultsJS,
+		"/ui_actions.js":    uiActionsJS,
+		"/ui_settings.js":   uiSettingsJS,
+		"/ui_onboarding.js": uiOnboardingJS,
+		"/ui_editor.js":     uiEditorJS,
+	} {
+		body := body
+		mux.HandleFunc(path, ws.serveAsset(jsContentType, func() string { return body }))
+	}
+	mux.HandleFunc("/ui_core.js", ws.serveAsset(jsContentType, func() string { return RenderUICoreJS(ws.App.SessionToken) }))
 	mux.HandleFunc("/api/state", ws.handleAPIState)
 	mux.HandleFunc("/api/rows", ws.handleAPIRows)
 	mux.HandleFunc("/api/events", ws.handleAPIEvents)
@@ -124,18 +129,13 @@ func respondHTML(w http.ResponseWriter, status int, html string) {
 	w.Write([]byte(html))
 }
 
-func respondCSS(w http.ResponseWriter, status int, css string) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	w.Write([]byte(css))
-}
+const jsContentType = "application/javascript; charset=utf-8"
 
-func respondJavaScript(w http.ResponseWriter, status int, js string) {
-	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+func respondAsset(w http.ResponseWriter, contentType, body string) {
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	w.Write([]byte(js))
+	w.WriteHeader(200)
+	w.Write([]byte(body))
 }
 
 func (ws *WebHTTPServer) readJSON(r *http.Request) (map[string]any, error) {
@@ -189,60 +189,15 @@ func (ws *WebHTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	respondHTML(w, 200, html)
 }
 
-func (ws *WebHTTPServer) handleUICSS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
+// serveAsset returns a token-protected handler for an embedded UI asset.
+func (ws *WebHTTPServer) serveAsset(contentType string, body func() string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !ws.checkToken(r) {
+			respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+			return
+		}
+		respondAsset(w, contentType, body())
 	}
-	respondCSS(w, 200, uiCSS)
-}
-
-func (ws *WebHTTPServer) handleUICoreJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, RenderUICoreJS(ws.App.SessionToken))
-}
-
-func (ws *WebHTTPServer) handleUIResultsJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, uiResultsJS)
-}
-
-func (ws *WebHTTPServer) handleUIActionsJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, uiActionsJS)
-}
-
-func (ws *WebHTTPServer) handleUISettingsJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, uiSettingsJS)
-}
-
-func (ws *WebHTTPServer) handleUIOnboardingJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, uiOnboardingJS)
-}
-
-func (ws *WebHTTPServer) handleUIEditorJS(w http.ResponseWriter, r *http.Request) {
-	if !ws.checkToken(r) {
-		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
-		return
-	}
-	respondJavaScript(w, 200, uiEditorJS)
 }
 
 func (ws *WebHTTPServer) handleAPIState(w http.ResponseWriter, r *http.Request) {

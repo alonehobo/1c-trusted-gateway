@@ -1,3 +1,5 @@
+//go:build windows
+
 // Debug helper: decrypts settings.bin via DPAPI and prints JSON.
 // Run with: go run ./cmd/dump-settings
 package main
