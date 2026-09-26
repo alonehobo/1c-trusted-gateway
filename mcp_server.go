@@ -413,6 +413,14 @@ func (ms *McpServer) toolExecuteCode(id any, args map[string]any) map[string]any
 		task = "MCP execute_code"
 	}
 
+	// Same brute-force rate limit as gateway_query
+	ms.app.mu.Lock()
+	blocked := ms.app.checkBridgeRateLimit()
+	ms.app.mu.Unlock()
+	if blocked {
+		return ms.toolError(id, "Слишком частые запросы. Авто-режим отключён. Работайте в ручном режиме.")
+	}
+
 	result := ms.app.bridgeExecuteCode(task, code, true)
 
 	okVal, _ := result["ok"].(bool)

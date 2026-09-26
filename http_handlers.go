@@ -264,15 +264,18 @@ func (ws *WebHTTPServer) handleAPIEvents(w http.ResponseWriter, r *http.Request)
 
 	var lastVersion int64
 	ctx := r.Context()
+	events := ws.App.subscribe()
+	defer ws.App.unsubscribe(events)
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-events:
+		case <-keepalive.C:
 		}
-
-		ws.App.waitForChange(15 * time.Second)
 
 		current := ws.App.stateVersion.Load()
 		if current != lastVersion {

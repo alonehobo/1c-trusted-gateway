@@ -79,13 +79,16 @@ type TrustedWebApp struct {
 	rateLimitTriggered bool        // true when brute-force was detected
 	rateLimitMessage   string      // message shown in UI
 
+	connectAttempt int64 // incremented on each HandleConnect; guards against stale results
+
 	queryCancel  context.CancelFunc
 	queryRunning bool
 	mu           sync.RWMutex
 	stateVersion atomic.Int64
 	dataVersion  int64 // incremented when row data changes (remask, new query, etc.)
 	queryVersion int64 // incremented only on new queries (not remask) — client uses this to reset tag state
-	stateEvent   chan struct{}
+	subMu        sync.Mutex
+	subscribers  map[chan struct{}]struct{} // one channel per SSE connection
 }
 
 // NewTrustedWebApp creates a new web app instance.
@@ -104,7 +107,7 @@ func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 		RawState:         "neutral",
 		PlaceholderText:  "Результат появится здесь после выполнения запроса.",
 		SessionToken:     generateToken(24),
-		stateEvent:       make(chan struct{}, 1),
+		subscribers:      make(map[chan struct{}]struct{}),
 	}
 	return app
 }
@@ -112,19 +115,30 @@ func NewTrustedWebApp(config *AppConfig, savedToken string) *TrustedWebApp {
 // notify increments state version and signals waiters. Caller must hold app.mu (write lock).
 func (app *TrustedWebApp) notify() {
 	app.stateVersion.Add(1)
-	select {
-	case app.stateEvent <- struct{}{}:
-	default:
+	app.subMu.Lock()
+	for ch := range app.subscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 	}
+	app.subMu.Unlock()
 }
 
-func (app *TrustedWebApp) waitForChange(timeout time.Duration) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-app.stateEvent:
-	case <-timer.C:
-	}
+// subscribe registers a state-change channel for one listener (e.g. an SSE connection).
+func (app *TrustedWebApp) subscribe() chan struct{} {
+	ch := make(chan struct{}, 1)
+	app.subMu.Lock()
+	app.subscribers[ch] = struct{}{}
+	app.subMu.Unlock()
+	return ch
+}
+
+// unsubscribe removes a channel registered with subscribe.
+func (app *TrustedWebApp) unsubscribe(ch chan struct{}) {
+	app.subMu.Lock()
+	delete(app.subscribers, ch)
+	app.subMu.Unlock()
 }
 
 // checkBridgeRateLimit checks if the bridge query rate is suspicious.
@@ -266,7 +280,6 @@ func (app *TrustedWebApp) GetState() map[string]any {
 // HandleConnect handles a connection attempt to the MCP server.
 func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 	app.mu.Lock()
-	defer app.mu.Unlock()
 	urlStr := strings.TrimSpace(getStringFieldDefault(data, "url", ""))
 	token := strings.TrimSpace(getStringFieldDefault(data, "token", ""))
 	useSaved, _ := data["use_saved_token"].(bool)
@@ -275,17 +288,30 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 		token = strings.TrimSpace(app.ConnectedToken)
 	}
 	if urlStr == "" {
+		app.mu.Unlock()
 		return map[string]any{"ok": false, "error": "URL is empty."}
 	}
 
+	app.connectAttempt++
+	attempt := app.connectAttempt
+	runtime := app.Runtime
 	app.StatusText = "Проверяю MCP..."
 	app.QueryState = "running"
 	app.QueryStateText = "Выполняется"
 	app.notify()
+	app.mu.Unlock()
 
+	// Network check runs without holding app.mu so GetState/API/MCP stay responsive.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	tools, err := app.Runtime.TestConnection(ctx, urlStr, token)
+	tools, err := runtime.TestConnection(ctx, urlStr, token)
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if attempt != app.connectAttempt {
+		// A newer connect attempt superseded this one; don't overwrite its state.
+		return map[string]any{"ok": false, "error": "Подключение прервано более новой попыткой."}
+	}
 	if err != nil {
 		errMsg := err.Error()
 		var friendly string
@@ -325,6 +351,7 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 func (app *TrustedWebApp) HandleDisconnect() map[string]any {
 	app.mu.Lock()
 	defer app.mu.Unlock()
+	app.connectAttempt++ // invalidate any in-flight connect check
 	app.ConnectedToken = ""
 	app.ConnectionVerified = false
 	_ = DeleteSettings()
@@ -1097,7 +1124,13 @@ func (app *TrustedWebApp) executeCodeDirect(task, code, url, token string) map[s
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	session, err := app.Runtime.ExecuteCode(ctx, url, token, task, code)
+	app.mu.RLock()
+	forceMask := app.mergedForceMask()
+	allowPlain := app.mergedAllowPlain()
+	skipNumeric := app.SkipNumericValues
+	app.mu.RUnlock()
+
+	session, err := app.Runtime.ExecuteCode(ctx, url, token, task, code, forceMask, allowPlain, skipNumeric)
 	if err != nil {
 		app.onQueryFailed(task, "code_masked", err.Error())
 		return map[string]any{"ok": false, "message": err.Error()}

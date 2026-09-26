@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // ColumnSchema describes a single column of a query result as reported by
@@ -81,6 +82,9 @@ type TrustedGatewayRuntime struct {
 	Config     *AppConfig
 	NerRules   *NerRules // loaded from ner_rules.json, may be nil
 	TypePolicy *TypePolicy
+
+	fallbackSaltOnce sync.Once
+	fallbackSalt     string // random salt generated once per process when no salt/token is set
 }
 
 // NewTrustedGatewayRuntime creates a new runtime with the given config.
@@ -233,6 +237,8 @@ func (rt *TrustedGatewayRuntime) ApplyAnalysis(session *TrustedSession, analysis
 func (rt *TrustedGatewayRuntime) ExecuteCode(
 	ctx context.Context,
 	url, token, task, code string,
+	forceMaskFields, allowPlainFields map[string]bool,
+	skipNumeric bool,
 ) (*TrustedSession, error) {
 	client := rt.buildMcpClient(url)
 	if err := client.Initialize(ctx); err != nil {
@@ -273,9 +279,13 @@ func (rt *TrustedGatewayRuntime) ExecuteCode(
 		rows := jsonToRows(parsed)
 		if len(rows) > 0 {
 			columnOrder := extractColumnOrderFromJSON(rawText)
+			// Same sanitizer setup as ExecuteQuery / remask: type policy + force-mask/allow-plain.
 			sanitizer := rt.runtimeSanitizer(token)
-			sanitizer.skipNumeric = true
-			sanitized := sanitizer.SanitizeRows(rows, nil, nil)
+			sanitizer.skipNumeric = skipNumeric
+			sanitizer.typePolicy = rt.TypePolicy
+			sanitizer.columnTypes = session.ColumnTypes
+			sanitizer.columnTruncated = session.ColumnTruncated
+			sanitized := sanitizer.SanitizeRows(rows, forceMaskFields, allowPlainFields)
 
 			session.Mode = "masked"
 			session.ColumnOrder = columnOrder
@@ -338,9 +348,12 @@ func (rt *TrustedGatewayRuntime) effectiveSalt(token string) string {
 		mac.Write([]byte("onec-gateway-salt"))
 		return hex.EncodeToString(mac.Sum(nil))
 	}
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	rt.fallbackSaltOnce.Do(func() {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		rt.fallbackSalt = hex.EncodeToString(b)
+	})
+	return rt.fallbackSalt
 }
 
 // MaskedBundle returns the JSON bundle of masked data for the agent.
