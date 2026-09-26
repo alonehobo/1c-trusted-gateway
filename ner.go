@@ -109,7 +109,7 @@ var (
 	reOgrnip    = regexp.MustCompile(`\b\d{15}\b`)
 	reInnCtx    = regexp.MustCompile(`(?i)ИНН[\s:=]*(\d{10,12})\b`)
 	reKppCtx    = regexp.MustCompile(`(?i)КПП[\s:=]*(\d{9})\b`)
-	reOrgQuoted = regexp.MustCompile(`(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\s*[""«]([^""»]+)[""»]`)
+	reOrgQuoted = regexp.MustCompile(`(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\s*["“«]([^"”»]+)["”»]`)
 	reOrgPlain  = regexp.MustCompile(`(?:ООО|ОАО|ЗАО|ПАО|АО|ИП|НКО|ФГУП|МУП|ГУП)\s+([А-ЯЁ][а-яёА-ЯЁ\s\-]{1,40})`)
 	reFioShort  = regexp.MustCompile(`[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s?[А-ЯЁ]\.`)
 	reFioFull   = regexp.MustCompile(`[А-ЯЁ][а-яё]{1,30}\s+[А-ЯЁ][а-яё]{1,30}\s+[А-ЯЁ][а-яё]*(вич|вна|ич|чна)\b`)
@@ -228,7 +228,7 @@ func SanitizeFreeText(text string, rules *NerRules, salt string, aliasLength int
 	})
 
 	sensitiveNerPrefixes := map[string]bool{
-		"ИНН": true, "КПП": true, "СНИЛС": true, "БИК": true,
+		"ИНН": true, "КПП": true, "СНИЛС": true, "Телефон": true, "БИК": true,
 		"ОГРН": true, "ОГРНИП": true, "РасчСчет": true, "КоррСчет": true,
 	}
 
