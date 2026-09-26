@@ -300,8 +300,8 @@ func (app *TrustedWebApp) HandleConnect(data map[string]any) map[string]any {
 		} else {
 			friendly = errMsg
 		}
-		if len(friendly) > 150 {
-			friendly = friendly[:150]
+		if r := []rune(friendly); len(r) > 150 {
+			friendly = string(r[:150])
 		}
 		app.ConnectionVerified = false
 		app.StatusText = "Ошибка: " + friendly
@@ -714,7 +714,10 @@ func (app *TrustedWebApp) HandleSuggestFields(fields []string) map[string]any {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	existingAllow := csvFields(app.PersistentAllowPlain)
+	existingAllow := make(map[string]bool)
+	for f := range csvFields(app.PersistentAllowPlain) {
+		existingAllow[strings.ToLower(f)] = true
+	}
 	var filtered []string
 	seen := make(map[string]bool)
 	for _, f := range fields {

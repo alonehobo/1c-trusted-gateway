@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -23,6 +24,13 @@ func NewMcpServer(app *TrustedWebApp) *McpServer {
 
 // handleMcp handles POST /mcp — streamable HTTP MCP endpoint.
 func (ms *McpServer) handleMcp(w http.ResponseWriter, r *http.Request) {
+	// Reject browser cross-origin requests (CSRF / DNS rebinding): the endpoint
+	// has no auth, so only local non-browser clients or local origins are allowed.
+	if origin := r.Header.Get("Origin"); origin != "" && !isLocalOrigin(origin) {
+		http.Error(w, "Forbidden origin", http.StatusForbidden)
+		return
+	}
+
 	if r.Method == http.MethodGet {
 		// SSE fallback: some clients probe with GET first
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -63,6 +71,18 @@ func (ms *McpServer) handleMcp(w http.ResponseWriter, r *http.Request) {
 	response := ms.dispatch(req)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func isLocalOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
 }
 
 func (ms *McpServer) dispatch(req map[string]any) map[string]any {
@@ -510,7 +530,9 @@ func (ms *McpServer) toolSuggestFields(id any, args map[string]any) map[string]a
 	if len(accepted) == 0 {
 		// All fields already in whitelist — clean up and return bundle immediately
 		ms.app.mu.Lock()
-		ms.app.suggestDone = nil
+		if ms.app.suggestDone == doneCh {
+			ms.app.suggestDone = nil
+		}
 		bundle := ms.app.BundleText
 		ms.app.mu.Unlock()
 
@@ -531,21 +553,28 @@ func (ms *McpServer) toolSuggestFields(id any, args map[string]any) map[string]a
 	timer := time.NewTimer(120 * time.Second)
 	defer timer.Stop()
 
+	approved := false
 	select {
 	case <-doneCh:
 		// All fields approved — return updated bundle
+		approved = true
 	case <-timer.C:
 		// Timeout — return what we have
 	}
 
 	// Clean up and notify UI to stop blinking
 	ms.app.mu.Lock()
-	ms.app.suggestDone = nil
+	if ms.app.suggestDone == doneCh {
+		ms.app.suggestDone = nil
+	}
 	bundle := ms.app.BundleText
 	ms.app.notify()
 	ms.app.mu.Unlock()
 
 	msg := fmt.Sprintf("Предложено полей: %d. Пользователь одобрил — данные ремаскированы.", len(accepted))
+	if !approved {
+		msg = fmt.Sprintf("Предложено полей: %d. Пользователь не подтвердил за 120 секунд — возвращены текущие данные.", len(accepted))
+	}
 
 	if bundle != "" {
 		// Return message + updated bundle as separate text

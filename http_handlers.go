@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -103,11 +103,14 @@ func (ws *WebHTTPServer) ShutdownServer() {
 }
 
 func (ws *WebHTTPServer) checkToken(r *http.Request) bool {
-	parsed, _ := url.Parse(r.RequestURI)
-	qs := parsed.Query()
-	tokenFromQS := qs.Get("token")
+	expected := []byte(ws.App.SessionToken)
+	if len(expected) == 0 {
+		return false
+	}
+	tokenFromQS := r.URL.Query().Get("token")
 	tokenFromHeader := r.Header.Get("X-Session-Token")
-	return tokenFromQS == ws.App.SessionToken || tokenFromHeader == ws.App.SessionToken
+	return subtle.ConstantTimeCompare([]byte(tokenFromQS), expected) == 1 ||
+		subtle.ConstantTimeCompare([]byte(tokenFromHeader), expected) == 1
 }
 
 func respondJSON(w http.ResponseWriter, status int, body any) {
@@ -164,7 +167,7 @@ func safeSlice(rows []map[string]any, offset, limit int) []map[string]any {
 		return []map[string]any{}
 	}
 	end := offset + limit
-	if end > len(rows) {
+	if limit > len(rows)-offset || end > len(rows) {
 		end = len(rows)
 	}
 	return rows[offset:end]
@@ -686,12 +689,15 @@ func (ws *WebHTTPServer) handleAPIApproveCode(w http.ResponseWriter, r *http.Req
 		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
 		return
 	}
-	ws.App.mu.RLock()
+	ws.App.mu.Lock()
 	code := ws.App.PendingCode
 	task := ws.App.PendingCodeTask
 	url := ws.App.ConnectedURL
 	token := ws.App.ConnectedToken
-	ws.App.mu.RUnlock()
+	// Consume pending code so a repeated approve cannot run it twice.
+	ws.App.PendingCode = ""
+	ws.App.PendingCodeTask = ""
+	ws.App.mu.Unlock()
 
 	if code == "" {
 		respondJSON(w, 400, map[string]any{"error": "Нет кода для выполнения"})
@@ -701,6 +707,14 @@ func (ws *WebHTTPServer) handleAPIApproveCode(w http.ResponseWriter, r *http.Req
 	result := ws.App.executeCodeDirect(task, code, url, token)
 	okVal, _ := result["ok"].(bool)
 	if !okVal {
+		// Keep the code available for a retry after a failed run.
+		ws.App.mu.Lock()
+		if ws.App.PendingCode == "" {
+			ws.App.PendingCode = code
+			ws.App.PendingCodeTask = task
+			ws.App.notify()
+		}
+		ws.App.mu.Unlock()
 		respondJSON(w, 200, result)
 		return
 	}
@@ -796,13 +810,22 @@ func (ws *WebHTTPServer) handleAPINerReload(w http.ResponseWriter, r *http.Reque
 		respondJSON(w, 500, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
+	ws.App.mu.Lock()
 	ws.App.Runtime.NerRules = rules
+	ws.App.notify()
+	ws.App.mu.Unlock()
 	status := nerRulesStatus(rules)
 	respondJSON(w, 200, map[string]any{"ok": true, "status": status})
 }
 
 func (ws *WebHTTPServer) handleAPINerStatus(w http.ResponseWriter, r *http.Request) {
+	if !ws.checkToken(r) {
+		respondJSON(w, 403, map[string]any{"error": "Forbidden"})
+		return
+	}
+	ws.App.mu.RLock()
 	rules := ws.App.Runtime.NerRules
+	ws.App.mu.RUnlock()
 	respondJSON(w, 200, map[string]any{"ok": true, "status": nerRulesStatus(rules)})
 }
 
